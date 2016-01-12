@@ -3214,6 +3214,12 @@ public class ThriftRPC extends FacebookBase implements
       from_db + " to DB:" + tbl.getDbName() + "." + tbl.getTableName() +
       ", fileMap size=" + fileMap.size());
 
+    // BUG-XXX: should check to_devid here!
+    if (dm.getDeviceInfo(to_devid) == null) {
+      LOG.error("Target device " + to_devid + " doesn't exist.");
+      return false;
+    }
+
     // try to find and create the database, if it doesn't exist
       try {
         rs.getDatabase(tbl.getDbName());
