@@ -38,7 +38,8 @@ public class MetaStoreConst {
     public static final int BACKUP_ALONE = 3; // special ALONE device for backup use
     public static final int CACHE = 4;  // L1: fast cache device, e.g. SSD
     public static final int MASS = 5; // L3: e.g. SATA
-    public static final int __MAX__ = 6;
+    public static final int RAM = 6; // L0: most fast device, memory
+    public static final int __MAX__ = 7;
     public static final int __AUTOSELECT_R1__ = -1;
     public static final int __AUTOSELECT_R2__ = -2;
     public static final int __AUTOSELECT_R3__ = -3;
@@ -50,8 +51,11 @@ public class MetaStoreConst {
     public static final int L4 = 1;
 
     public static final int __TYPE_MASK__ = 0x0f;
+    public static final int __QUOTA_MASK__ = 0xf0;
     public static final int __QUOTA_SHIFT__ = 4;
 
+    // tags of device: highest 4 bits
+    public static final int __LOONGSTORE__ = 0x80000000;
   }
 
   // return if type1 BEFORE OR EQUAL type2
