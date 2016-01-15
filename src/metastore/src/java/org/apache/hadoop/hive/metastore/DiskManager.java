@@ -120,6 +120,9 @@ public class DiskManager {
 
     public static SysMonitor sm = new SysMonitor();
 
+    // NOTE: if identify_shared_device is true, we return SFileLocation with
+    // its node name to a accurate node list, otherwise we return SFileLocation
+    // with "".
     public static boolean identify_shared_device;
 
     static {
@@ -1390,6 +1393,8 @@ public class DiskManager {
 
       public String getTypeStr() {
         switch (prop & MetaStoreConst.MDeviceProp.__TYPE_MASK__) {
+        case MetaStoreConst.MDeviceProp.RAM:
+          return "L0";
         case MetaStoreConst.MDeviceProp.CACHE:
           return "L1";
         case MetaStoreConst.MDeviceProp.GENERAL:
@@ -1405,6 +1410,8 @@ public class DiskManager {
 
       public static String getTypeStr(int prop) {
         switch (prop & MetaStoreConst.MDeviceProp.__TYPE_MASK__) {
+        case MetaStoreConst.MDeviceProp.RAM:
+          return "L0";
         case MetaStoreConst.MDeviceProp.CACHE:
           return "L1";
         case MetaStoreConst.MDeviceProp.GENERAL:
@@ -1431,6 +1438,11 @@ public class DiskManager {
       public static int getQuota(int prop) {
         int keep = prop >>> MetaStoreConst.MDeviceProp.__QUOTA_SHIFT__;
         return keep > 100 ? 0 : (100 - keep);
+      }
+
+      public String getUsage() {
+        return String.format("%02d",
+            (used + free > 0 ? (int)(used * 100 / (used + free)) : -1));
       }
 
       public DeviceInfo(DeviceInfo old) {
@@ -3278,11 +3290,16 @@ public class DiskManager {
       Long[] devnr = new Long[MetaStoreConst.MDeviceProp.__MAX__];
       Long[] adevnr = new Long[MetaStoreConst.MDeviceProp.__MAX__];
       long free = 0, used = 0, offlinenr = 0, truetotal = 0, truefree = 0;
+      long ramFree = 0, ramUsed = 0, ramTruetotal = 0, ramTruefree = 0;
       long cacheFree = 0, cacheUsed = 0, cacheTruetotal = 0, cacheTruefree = 0;
       long generalFree = 0, generalUsed = 0, generalTruetotal = 0, generalTruefree = 0;
       long massFree = 0, massUsed = 0, massTruetotal = 0, massTruefree = 0;
       long shareFree = 0, shareUsed = 0, shareTruetotal = 0, shareTruefree = 0;
       Set<String> offlinedevs = new TreeSet<String>();
+      String ANSI_RESET = "\u001B[0m";
+      String ANSI_RED = "\u001B[31m";
+      String ANSI_GREEN = "\u001B[32m";
+      String color;
 
       for (int i = 0; i < devnr.length; i++) {
         devnr[i] = new Long(0);
@@ -3290,13 +3307,14 @@ public class DiskManager {
       }
 
       r += "Uptime " + ((System.currentTimeMillis() - startupTs) / 1000) + " s, ";
-      r += "Timestamp " + System.currentTimeMillis() / 1000 + "\n";
+      r += "Timestamp " + System.currentTimeMillis() / 1000 + " Version 2.0.1a\n";
       r += "MetaStore Server Disk Manager listening @ " + hiveConf.getIntVar(HiveConf.ConfVars.DISKMANAGERLISTENPORT);
       r += "\nSafeMode: " + safeMode + "\n";
       r += "Multicast: " + hiveConf.getVar(HiveConf.ConfVars.DM_USE_MCAST) + "\n";
       r += "Quota: " + (hiveConf.getBoolVar(HiveConf.ConfVars.DM_USE_QUOTA) ? "enabled" : "disabled") + "\n";
       r += "IdentifySD: " + identify_shared_device + "\n";
       r += "Role: " + role + "\n";
+      r += "HA SID: " + serverId + "\n";
       r += "AlterURI: " + alternateURI + "\n";
       r += "Per-IP-Connections: {\n";
       for (Map.Entry<String, AtomicLong> e : HiveMetaStoreServerEventHandler.perIPConns.entrySet()) {
@@ -3309,12 +3327,19 @@ public class DiskManager {
       r += "Active Node-Device map: {\n";
       synchronized (ndmap) {
         for (Map.Entry<String, NodeInfo> e : ndmap.entrySet()) {
-          r += " " + e.getKey() + " -> " + "[";
+          // if we detect node reboot in last 24hrs, we set it to RED color
+          r += " ";
+          if (e.getValue().uptime > 0 && e.getValue().uptime <= 86400) {
+            r += ANSI_RED + e.getKey() + ANSI_RESET;
+          } else {
+            r += e.getKey();
+          }
+          r += " -> " + "[";
           synchronized (e.getValue()) {
             if (e.getValue().dis != null) {
               for (DeviceInfo di : e.getValue().dis) {
                 r += (di.isOffline ? "OF" : "ON") + ":" + di.getTypeStr() +
-                    ":" + di.getQuota() + ":" + di.dev + ",";
+                    ":" + di.getUsage() + "/" + di.getQuota() + ":" + di.dev + ",";
                 switch (di.getType()) {
                 case MetaStoreConst.MDeviceProp.GENERAL:
                 case MetaStoreConst.MDeviceProp.BACKUP:
@@ -3322,6 +3347,7 @@ public class DiskManager {
                 case MetaStoreConst.MDeviceProp.BACKUP_ALONE:
                 case MetaStoreConst.MDeviceProp.MASS:
                 case MetaStoreConst.MDeviceProp.CACHE:
+                case MetaStoreConst.MDeviceProp.RAM:
                   devnr[di.getType()]++;
                 case -1:
                   break;
@@ -3333,9 +3359,6 @@ public class DiskManager {
         }
       }
       r += "}\n";
-      String ANSI_RESET = "\u001B[0m";
-	    String ANSI_RED = "\u001B[31m";
-	    String ANSI_GREEN = "\u001B[32m";
 
 	    synchronized (admap) {
 	      for (Map.Entry<String, DeviceInfo> e : admap.entrySet()) {
@@ -3360,6 +3383,10 @@ public class DiskManager {
 	        free += e.getValue().free;
 	        used += e.getValue().used;
 	        switch(e.getValue().getType()){
+	        case MetaStoreConst.MDeviceProp.RAM:
+	          ramFree += e.getValue().free;
+	          ramUsed += e.getValue().used;
+	          break;
 	        case MetaStoreConst.MDeviceProp.CACHE:
 	          cacheFree += e.getValue().free;
 	          cacheUsed += e.getValue().used;
@@ -3389,6 +3416,10 @@ public class DiskManager {
 	          truefree += e.getValue().free;
 	          truetotal += (e.getValue().free + e.getValue().used);
 	          switch(e.getValue().getType()){
+	          case MetaStoreConst.MDeviceProp.RAM:
+	            ramTruefree += e.getValue().free;
+	            ramTruetotal += (e.getValue().free + e.getValue().used);
+	            break;
 	          case MetaStoreConst.MDeviceProp.CACHE:
 	            cacheTruefree += e.getValue().free;
 	            cacheTruetotal += (e.getValue().free + e.getValue().used);
@@ -3412,60 +3443,44 @@ public class DiskManager {
 
 	    if (used + free > 0) {
         if (((double)truefree / (truetotal)) < 0.2) {
-          r += "Total space " + ((used + free) / 1000000000) + "G, used " + (used / 1000000000) +
-              "G, free " + ANSI_RED + (free / 1000000000) + ANSI_RESET + "G, ratio " + ((double)free / (used + free)) + " \n";
-          r += "True  space " + ((truetotal) / 1000000000) + "G, used " + ((truetotal - truefree) / 1000000000) +
-              "G, free " + ANSI_RED + (truefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)truefree / (truetotal)) + " \n";
-
-          r += "L1 Total space " + ((cacheUsed + cacheFree) / 1000000000) + "G, used " + (cacheUsed / 1000000000) +
-              "G, free " + ANSI_RED + (cacheFree / 1000000000) + ANSI_RESET + "G, ratio " +  ((double)cacheFree / (cacheUsed + cacheFree)) + " \n";
-          r += "L1 True  space " + ((cacheTruetotal) / 1000000000) + "G, used " + ((cacheTruetotal - cacheTruefree) / 1000000000) +
-              "G, free " + ANSI_RED + (cacheTruefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)cacheTruefree / (cacheTruetotal)) + " \n";
-
-          r += "L2 Total space " + ((generalUsed + generalFree) / 1000000000) + "G, used " + (generalUsed / 1000000000) +
-              "G, free " + ANSI_RED + (generalFree / 1000000000) + ANSI_RESET + "G, ratio " +  ((double)generalFree / (generalUsed + generalFree)) + " \n";
-          r += "L2 True  space " + ((generalTruetotal) / 1000000000) + "G, used " + ((generalTruetotal - generalTruefree) / 1000000000) +
-              "G, free " + ANSI_RED + (generalTruefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)generalTruefree / (generalTruetotal)) + " \n";
-
-          r += "L3 Total space " + ((massUsed + massFree) / 1000000000) + "G, used " + (massUsed / 1000000000) +
-              "G, free " + ANSI_RED + (massFree / 1000000000) + ANSI_RESET + "G, ratio " +  ((double)massFree / (massUsed + massFree)) + " \n";
-          r += "L3 True  space " + ((massTruetotal) / 1000000000) + "G, used " + ((massTruetotal - massTruefree) / 1000000000) +
-              "G, free " + ANSI_RED + (massTruefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)massTruefree / (massTruetotal)) + " \n";
-
-          r += "L4 Total space " + ((shareUsed + shareFree) / 1000000000) + "G, used " + (shareUsed / 1000000000) +
-              "G, free " + ANSI_RED + (shareFree / 1000000000) + ANSI_RESET + "G, ratio " +  ((double)shareFree / (shareUsed + shareFree)) + " \n";
-          r += "L4 True  space " + ((shareTruetotal) / 1000000000) + "G, used " + ((shareTruetotal - shareTruefree) / 1000000000) +
-              "G, free " + ANSI_RED + (shareTruefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)shareTruefree / (shareTruetotal)) + " \n";
+          color = ANSI_RED;
         } else {
-          r += "Total space " + ((used + free) / 1000000000) + "G, used " + (used / 1000000000) +
-              "G, free " + ANSI_GREEN + (free / 1000000000) + ANSI_RESET + "G, ratio " + ((double)free / (used + free)) + "\n";
-          r += "True  space " + ((truetotal) / 1000000000) + "G, used " + ((truetotal - truefree) / 1000000000) +
-              "G, free " + ANSI_GREEN + (truefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)truefree / (truetotal)) + "\n";
-
-          r += "L1 Total space " + ((cacheUsed + cacheFree) / 1000000000) + "G, used " + (cacheUsed / 1000000000) +
-                  "G, free " + ANSI_GREEN + (cacheFree / 1000000000) + ANSI_RESET + "G, ratio " +  ((double)cacheFree / (cacheUsed + cacheFree)) + " \n";
-          r += "L1 True  space " + ((cacheTruetotal) / 1000000000) + "G, used " + ((cacheTruetotal - cacheTruefree) / 1000000000) +
-                     "G, free " + ANSI_GREEN + (cacheTruefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)cacheTruefree / (cacheTruetotal)) + " \n";
-
-          r += "L2 Total space " + ((generalUsed + generalFree) / 1000000000) + "G, used " + (generalUsed / 1000000000) +
-                  "G, free " + ANSI_GREEN + (generalFree / 1000000000) + ANSI_RESET + "G, ratio " +  ((double)generalFree / (generalUsed + generalFree)) + " \n";
-          r += "L2 True  space " + ((generalTruetotal) / 1000000000) + "G, used " + ((generalTruetotal - generalTruefree) / 1000000000) +
-                     "G, free " + ANSI_GREEN + (generalTruefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)generalTruefree / (generalTruetotal)) + " \n";
-
-          r += "L3 Total space " + ((massUsed + massFree) / 1000000000) + "G, used " + (massUsed / 1000000000) +
-                  "G, free " + ANSI_GREEN + (massFree / 1000000000) + ANSI_RESET + "G, ratio " +  ((double)massFree / (massUsed + massFree)) + " \n";
-          r += "L3 True  space " + ((massTruetotal) / 1000000000) + "G, used " + ((massTruetotal - massTruefree) / 1000000000) +
-                     "G, free " + ANSI_GREEN + (massTruefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)massTruefree / (massTruetotal)) + " \n";
-
-          r += "L4 Total space " + ((shareUsed + shareFree) / 1000000000) + "G, used " + (shareUsed / 1000000000) +
-                  "G, free " + ANSI_GREEN + (shareFree / 1000000000) + ANSI_RESET + "G, ratio " +  ((double)shareFree / (shareUsed + shareFree)) + " \n";
-          r += "L4 True  space " + ((shareTruetotal) / 1000000000) + "G, used " + ((shareTruetotal - shareTruefree) / 1000000000) +
-                     "G, free " + ANSI_GREEN + (shareTruefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)shareTruefree / (shareTruetotal)) + " \n";
+          color = ANSI_GREEN;
         }
+        r += "Total space " + ((used + free) / 1000000000) + "G, used " + (used / 1000000000) +
+            "G, free " + color + (free / 1000000000) + ANSI_RESET + "G, ratio " + ((double)free / (used + free)) + " \n";
+        r += "True  space " + ((truetotal) / 1000000000) + "G, used " + ((truetotal - truefree) / 1000000000) +
+            "G, free " + color + (truefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)truefree / (truetotal)) + " \n";
+
+        r += "L0 Total space " + ((ramUsed + ramFree) / 1000000000) + "G, used " + (ramUsed / 1000000000) +
+            "G, free " + color + (ramFree / 1000000000) + ANSI_RESET + "G, ratio " +  ((double)ramFree / (ramUsed + ramFree)) + " \n";
+        r += "L0 True  space " + ((ramTruetotal) / 1000000000) + "G, used " + ((ramTruetotal - ramTruefree) / 1000000000) +
+            "G, free " + color + (ramTruefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)ramTruefree / (ramTruetotal)) + " \n";
+
+        r += "L1 Total space " + ((cacheUsed + cacheFree) / 1000000000) + "G, used " + (cacheUsed / 1000000000) +
+            "G, free " + color + (cacheFree / 1000000000) + ANSI_RESET + "G, ratio " +  ((double)cacheFree / (cacheUsed + cacheFree)) + " \n";
+        r += "L1 True  space " + ((cacheTruetotal) / 1000000000) + "G, used " + ((cacheTruetotal - cacheTruefree) / 1000000000) +
+            "G, free " + color + (cacheTruefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)cacheTruefree / (cacheTruetotal)) + " \n";
+
+        r += "L2 Total space " + ((generalUsed + generalFree) / 1000000000) + "G, used " + (generalUsed / 1000000000) +
+            "G, free " + color + (generalFree / 1000000000) + ANSI_RESET + "G, ratio " +  ((double)generalFree / (generalUsed + generalFree)) + " \n";
+        r += "L2 True  space " + ((generalTruetotal) / 1000000000) + "G, used " + ((generalTruetotal - generalTruefree) / 1000000000) +
+            "G, free " + color + (generalTruefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)generalTruefree / (generalTruetotal)) + " \n";
+
+        r += "L3 Total space " + ((massUsed + massFree) / 1000000000) + "G, used " + (massUsed / 1000000000) +
+            "G, free " + color + (massFree / 1000000000) + ANSI_RESET + "G, ratio " +  ((double)massFree / (massUsed + massFree)) + " \n";
+        r += "L3 True  space " + ((massTruetotal) / 1000000000) + "G, used " + ((massTruetotal - massTruefree) / 1000000000) +
+            "G, free " + color + (massTruefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)massTruefree / (massTruetotal)) + " \n";
+
+        r += "L4 Total space " + ((shareUsed + shareFree) / 1000000000) + "G, used " + (shareUsed / 1000000000) +
+            "G, free " + color + (shareFree / 1000000000) + ANSI_RESET + "G, ratio " +  ((double)shareFree / (shareUsed + shareFree)) + " \n";
+        r += "L4 True  space " + ((shareTruetotal) / 1000000000) + "G, used " + ((shareTruetotal - shareTruefree) / 1000000000) +
+            "G, free " + color + (shareTruefree / 1000000000) + ANSI_RESET + "G, ratio " + ((double)shareTruefree / (shareTruetotal)) + " \n";
 	    }
       synchronized (rs) {
         r += "Total devices " + rs.countDevice() +
             ", active {offline " + offlinenr +
+            ", L0 " + devnr[MetaStoreConst.MDeviceProp.RAM] +
             ", L1 " + devnr[MetaStoreConst.MDeviceProp.CACHE] +
             ", L2 " + devnr[MetaStoreConst.MDeviceProp.GENERAL] +
             ", L3 " + devnr[MetaStoreConst.MDeviceProp.MASS] +
@@ -5408,7 +5423,15 @@ public class DiskManager {
                           oni.ddel = Long.parseLong(args[5]);
                           oni.tver = Long.parseLong(args[6]);
                           oni.tvyr = Long.parseLong(args[7]);
-                          oni.uptime = Long.parseLong(args[8]);
+                          long cuptime = Long.parseLong(args[8]);
+                          if (cuptime < oni.uptime && oni.uptime > 0) {
+                            // FIXME: detect node reboot, we should clear all
+                            // existing RAM files on this node
+                            LOG.info("Detect node reboot: " + reportNode.getNode_name() +
+                                " reboot at=" + (System.currentTimeMillis() / 1000 - cuptime) +
+                                " last uptime=" + oni.uptime + " current uptime=" + cuptime);
+                          }
+                          oni.uptime = cuptime;
                           oni.load1 = Double.parseDouble(args[9]);
                           if (args.length > 10) {
                             oni.recvLatency = Long.parseLong(args[10]);
@@ -5881,7 +5904,9 @@ public class DiskManager {
                           // hadn't been touched for specified seconds.)
                           synchronized (report.oni.toVerify) {
                             report.oni.toVerify.add(args[1] + ":" + report.oni.getMP(args[1]) + ":" + args[2]);
-                            LOG.info("----> Add toVerify " + args[0] + " " + args[1] + "," + args[2] + ", qs " + report.oni.toVerify.size());
+                            LOG.info("----> Add toVerify " + args[0] + " " + args[1] + "," + args[2] +
+                                " level " + args[3] +
+                                ", qs " + report.oni.toVerify.size());
                             report.oni.totalVYR++;
                           }
                         } else {
@@ -5893,7 +5918,31 @@ public class DiskManager {
                               LOG.error(e, e);
                             }
                             LOG.info("Verify change dev: " + args[1] + " loc: " + args[2] + " sfl state from SUSPECT to ONLINE.");
-                          }	//
+                          }
+                          // NOTE: check file location based on level
+                          try {
+                            int level = Integer.parseInt(args[3]);
+                            if (level == 1 && args.length >= 5) {
+                              // this means we need to check MD5 of SFL
+                              if (sfl.getDigest() != null && args[4] != null) {
+                                if (sfl.getDigest().equals(args[4])) {
+                                  // ok, md5 check passed
+                                  LOG.debug("Verify SFL: " + r.args + " md5 checksum passed");
+                                } else if (sfl.getDigest().length() != 32) {
+                                  // ignore this master copy or other specified digest?
+                                  // e.g. sfl.getDigest().equals("SFL_DEFAULT")
+                                } else {
+                                  LOG.warn("Detect MD5 mismatch for fid=" + sfl.getFid() +
+                                      " expect " + sfl.getDigest() + " got SFL: " + r.args);
+                                  if (sfl.getDigest() != null) {
+                                    if (sfl.getDigest().equalsIgnoreCase("d41d8cd98f00b204e9800998ecf8427e")) {
+                                      // FIXME: target directory is empty? we can safely delete it
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          } catch (NumberFormatException nfe) {}
                         }
                       }
                     }
