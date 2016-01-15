@@ -3557,7 +3557,7 @@ public class ObjectStore implements RawStore, Configurable {
 
   private MTable convertToMTable(Table tbl) throws InvalidObjectException,
       MetaException {
-    if (tbl == null) {
+    if (tbl == null || tbl.getSchemaName() == null) {
       return null;
     }
     MDatabase mdb = null;
