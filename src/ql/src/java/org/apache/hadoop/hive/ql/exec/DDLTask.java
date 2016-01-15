@@ -4685,6 +4685,7 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
       tbl.setPartitions(crtTbl.getPartitions());
       LOG.warn("---zjw--sub size:"+tbl.getPartitions().get(0).getSubpartitionsSize());
     }
+    tbl.setSchemaName(tbl.getTableName());
 
     // create the table
     db.createTable(tbl, crtTbl.getIfNotExists());

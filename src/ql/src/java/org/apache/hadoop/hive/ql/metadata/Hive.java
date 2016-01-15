@@ -596,6 +596,7 @@ public class Hive {
       User user = new User(userName, "invalid_passwd", System.currentTimeMillis(), "root");
       LOG.info("GOT USER: " + userName);
       getMSC().createTableByUser(tTbl, user);*/
+      tTbl.setSchemaName(tbl.getSchemaName());
       getMSC().createTable(tTbl);
     } catch (AlreadyExistsException e) {
       if (!ifNotExists) {
