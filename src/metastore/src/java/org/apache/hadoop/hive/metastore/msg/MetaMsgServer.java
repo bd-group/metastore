@@ -8,6 +8,7 @@ import java.util.concurrent.Semaphore;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.ObjectStore;
 import org.apache.hadoop.hive.metastore.api.FileOperationException;
 import org.apache.hadoop.hive.metastore.api.InvalidObjectException;
@@ -41,6 +42,7 @@ public class MetaMsgServer {
   public static final Log LOG = LogFactory.getLog(ObjectStore.class.getName());
   static String zkAddr = "127.0.0.1:3181";
   static Producer producer =  null;
+  static RocketMqMetaProducer rmProducer = null;
   static int times = 3;
   static MetaMsgServer server = null;
   private static boolean initalized = false;
@@ -48,6 +50,9 @@ public class MetaMsgServer {
   private static boolean zkfailed = false;
   private static long sleepSeconds = 60l;
   static ConcurrentLinkedQueue<DDLMsg> queue = new ConcurrentLinkedQueue<DDLMsg>();
+
+  //add for message queue select
+  private static boolean isRocketMqSelected = new HiveConf().getBoolVar(ConfVars.IS_ROCKETMQ_SELECTED);
 
   private static ConcurrentLinkedQueue<DDLMsg> failed_queue = new ConcurrentLinkedQueue<DDLMsg>();
 
@@ -62,17 +67,38 @@ public class MetaMsgServer {
 
   private  static void initalize(String topic) throws MetaClientException {
     server = new MetaMsgServer();
-    Producer.config(zkAddr, topic);
+    if(!isRocketMqSelected)
+    {
+      Producer.config(zkAddr, topic);
     producer = Producer.getInstance();
     initalized = true;
     zkfailed = false;
+    LOG.info("libing:debug,MetaMsgServer.initalize Producer:"+Producer.class.toString()+" and topic is:"+topic);
+    }
+    else {
+      rmProducer = RocketMqMetaProducer.getInstance(topic);
+      initalized = true;
+      zkfailed = false;
+      LOG.info("libing:debug,MetaMsgServer.initalize rmProducer:"+RocketMqMetaProducer.class.toString()+" and topic is:"+topic);
+    }
+
   }
 
   private static void reconnect() throws MetaClientException {
-    Producer.config(zkAddr, Producer.topic);
-    producer = Producer.getInstance();
-    initalized = true;
-    zkfailed = false;
+    if(!isRocketMqSelected)
+    {
+      Producer.config(zkAddr, Producer.topic);
+      producer = Producer.getInstance();
+      initalized = true;
+      zkfailed = false;
+    }
+    else {
+      rmProducer = RocketMqMetaProducer.getInstance();
+      initalized = true;
+      zkfailed = false;
+    }
+
+
   }
 
   public static void start(String topic) throws MetaClientException{
@@ -183,7 +209,17 @@ public class MetaMsgServer {
 
     boolean success = false;
     try{
-      success = producer.sendMsg(jsonMsg);
+      if(!isRocketMqSelected)
+      {
+        LOG.info("libing,debug:MetaMsgServer sendMsg by which producer:"+producer.getClass().toString()+" the  topic is :"+ producer.topic);
+        success = producer.sendMsg(jsonMsg);
+      }
+      else {
+        LOG.info("libing,debug:debug:MetaMsgServer sendMsg by which producer:"+rmProducer.getClass().toString()+" the rm topic is :"+ rmProducer.getTopic());
+        success = rmProducer.sendMessage(jsonMsg);
+      }
+
+
     }catch(InterruptedException ie){
       LOG.error(ie,ie);
       return retrySendMsg(jsonMsg,times-1);
@@ -234,6 +270,7 @@ public class MetaMsgServer {
       MessageConsumer consumer =
       sessionFactory.createConsumer(new ConsumerConfig(group));
       //订阅事件，MessageListener是事件处理接口
+      LOG.info("libing:debug,MetaMsgServer.AsyncConsumer subscribe topic is :"+ topic);
       consumer.subscribe(topic, 1024, new MessageListener(){
 
         @Override
@@ -357,6 +394,7 @@ public class MetaMsgServer {
         sessionFactory = new MetaMessageSessionFactory(metaClientConfig);
         producer = sessionFactory.createProducer();
         producer.setTransactionTimeout(30 * 1000);
+        LOG.info("libing:debug,MetaMsgServer:new producer() and the topic is :"+ topic);
         producer.publish(topic);
       } catch(MetaClientException e){
         LOG.error(e.getMessage());
