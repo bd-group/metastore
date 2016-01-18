@@ -2120,6 +2120,8 @@ public class DiskManager {
             }
           }
         }
+
+        // If master has not been marked, async replicate sfile failed.
         if (!master_marked) {
           LOG.error("Async replicate SFile " + f.getFid() + ", but no valid FROM SFileLocations!");
           // FIXME: this means we should clean this file?
@@ -2152,6 +2154,38 @@ public class DiskManager {
                 " (reason: no locations), however it's status is " + f.getStore_status());
           }
           return;
+        }
+
+        // BUG-XXX: At first, we allow replicate on nodes that didn't in current table's nodegroup.
+        // This policy might be a problem, add a switch for it.
+        if (hiveConf.getBoolVar(HiveConf.ConfVars.DM_FORCE_NG_POLICY) &&
+            f.getDbName() != null && f.getTableName() != null) {
+          try {
+            Table t = null;
+            synchronized (trs) {
+              t = trs.getTable(f.getDbName(), f.getTableName());
+            }
+            if (t != null && t.getNodeGroups() != null) {
+              Set<String> ngnodes = new HashSet<String>();
+              Set<String> anodes = new HashSet<String>(ndmap.keySet());
+              Set<String> bnodes = new HashSet<String>(ndmap.keySet());
+
+              for (NodeGroup ng : t.getNodeGroups()) {
+                for (Node n : ng.getNodes()) {
+                  ngnodes.add(n.getNode_name());
+                }
+              }
+
+              anodes.retainAll(ngnodes);
+              bnodes.removeAll(anodes);
+              excludes.addAll(bnodes);
+              LOG.info("FID=" + f.getFid() + " following NGs, exclude nodes: " + bnodes);
+              anodes.clear();
+              bnodes.clear();
+            }
+          } catch (MetaException e) {
+            LOG.error(e, e);
+          }
         }
 
         flp = flp_default = new FileLocatingPolicy(excludes, excl_dev,
