@@ -52,7 +52,7 @@ public class MetaMsgServer {
   static ConcurrentLinkedQueue<DDLMsg> queue = new ConcurrentLinkedQueue<DDLMsg>();
 
   //add for message queue select
-  private static boolean isRocketMqSelected = new HiveConf().getBoolVar(ConfVars.IS_ROCKETMQ_SELECTED);
+  private static boolean useRocketMQ = new HiveConf().getBoolVar(ConfVars.USE_ROCKETMQ);
 
   private static ConcurrentLinkedQueue<DDLMsg> failed_queue = new ConcurrentLinkedQueue<DDLMsg>();
 
@@ -67,38 +67,25 @@ public class MetaMsgServer {
 
   private  static void initalize(String topic) throws MetaClientException {
     server = new MetaMsgServer();
-    if(!isRocketMqSelected)
-    {
+    if (!useRocketMQ) {
       Producer.config(zkAddr, topic);
-    producer = Producer.getInstance();
+      producer = Producer.getInstance();
+    } else {
+      rmProducer = RocketMqMetaProducer.getInstance(topic);
+    }
     initalized = true;
     zkfailed = false;
-    LOG.info("libing:debug,MetaMsgServer.initalize Producer:"+Producer.class.toString()+" and topic is:"+topic);
-    }
-    else {
-      rmProducer = RocketMqMetaProducer.getInstance(topic);
-      initalized = true;
-      zkfailed = false;
-      LOG.info("libing:debug,MetaMsgServer.initalize rmProducer:"+RocketMqMetaProducer.class.toString()+" and topic is:"+topic);
-    }
-
   }
 
   private static void reconnect() throws MetaClientException {
-    if(!isRocketMqSelected)
-    {
+    if (!useRocketMQ) {
       Producer.config(zkAddr, Producer.topic);
       producer = Producer.getInstance();
-      initalized = true;
-      zkfailed = false;
-    }
-    else {
+    } else {
       rmProducer = RocketMqMetaProducer.getInstance();
-      initalized = true;
-      zkfailed = false;
     }
-
-
+    initalized = true;
+    zkfailed = false;
   }
 
   public static void start(String topic) throws MetaClientException{
@@ -202,30 +189,26 @@ public class MetaMsgServer {
     if (!initalized) {
       return true;
     }
-    if(times <= 0){
+    if (times <= 0){
       zkfailed = true;
       return false;
     }
 
     boolean success = false;
-    try{
-      if(!isRocketMqSelected)
-      {
-        LOG.info("libing,debug:MetaMsgServer sendMsg by which producer:"+producer.getClass().toString()+" the  topic is :"+ producer.topic);
+    try {
+      if (!useRocketMQ) {
         success = producer.sendMsg(jsonMsg);
-      }
-      else {
-        LOG.info("libing,debug:debug:MetaMsgServer sendMsg by which producer:"+rmProducer.getClass().toString()+" the rm topic is :"+ rmProducer.getTopic());
+      } else {
         success = rmProducer.sendMessage(jsonMsg);
       }
 
 
-    }catch(InterruptedException ie){
+    } catch(InterruptedException ie){
       LOG.error(ie,ie);
-      return retrySendMsg(jsonMsg,times-1);
+      return retrySendMsg(jsonMsg, times - 1);
     } catch (MetaClientException e) {
       LOG.error(e,e);
-      return retrySendMsg(jsonMsg,times-1);
+      return retrySendMsg(jsonMsg, times - 1);
     }
     // FIXME: BUG-XXX: handle timeout exception here !
     return success;
@@ -237,17 +220,18 @@ public class MetaMsgServer {
     private ThriftHiveMetastore.Client client = null;
     private final HiveConf hiveConf = new HiveConf(HiveMetaTool.class);
     private final ObjectStore ob;
-    final String topic ;
-    final String group ;
+    final String topic;
+    final String group;
+
     public AsyncConsumer(String topic, String group) {
     	this.topic = topic;
     	this.group = group;
     	ob = new ObjectStore();
     	ob.setConf(hiveConf);
     }
-    private ThriftHiveMetastore.Client createNewMSClient() throws TTransportException
-    {
-    	String[] uri =hiveConf.get("newms.rpc.uri").split(":");
+
+    private ThriftHiveMetastore.Client createNewMSClient() throws TTransportException {
+    	String[] uri = hiveConf.get("newms.rpc.uri").split(":");
     	TTransport tt = new TSocket(uri[0], Integer.parseInt(uri[1]));
     	tt.open();
     	TProtocol protocol = new TBinaryProtocol(tt);
@@ -270,7 +254,6 @@ public class MetaMsgServer {
       MessageConsumer consumer =
       sessionFactory.createConsumer(new ConsumerConfig(group));
       //订阅事件，MessageListener是事件处理接口
-      LOG.info("libing:debug,MetaMsgServer.AsyncConsumer subscribe topic is :"+ topic);
       consumer.subscribe(topic, 1024, new MessageListener(){
 
         @Override
@@ -394,7 +377,6 @@ public class MetaMsgServer {
         sessionFactory = new MetaMessageSessionFactory(metaClientConfig);
         producer = sessionFactory.createProducer();
         producer.setTransactionTimeout(30 * 1000);
-        LOG.info("libing:debug,MetaMsgServer:new producer() and the topic is :"+ topic);
         producer.publish(topic);
       } catch(MetaClientException e){
         LOG.error(e.getMessage());

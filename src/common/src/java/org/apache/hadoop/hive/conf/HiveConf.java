@@ -745,9 +745,8 @@ public class HiveConf extends Configuration {
     MS_FEATURE_TEST("ms.feature.test", false),
 
     //add by lb
-    ROCKETMQNAMESRVADDRESS("rocketmq.namesrv.address", "127.0.0.1:9876"),
-    IS_ROCKETMQ_SELECTED("rocketmq.select", true),
-
+    ROCKETMQ_NAMESRV_ADDRESS("rocketmq.namesrv.address", "127.0.0.1:9876"),
+    USE_ROCKETMQ("rocketmq.select", false),
 
     //add by zy
     NEWMS_IS_USE_METASTORE_CLIENT("newms.isUseMetaStoreClient", true),
