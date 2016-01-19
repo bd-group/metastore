@@ -284,9 +284,12 @@ public class NewMS {
         }
         // if old_with_new, comsumer use oldms topic
         String serverName = InetAddress.getLocalHost().getHostName();
+        String nameSrvAddr = conf.getVar(ConfVars.ROCKETMQNAMESRVADDRESS);
+        LOG.info("libing:debug,++++++++newms.main before startconsumer and the namesrvaddr is :"+nameSrvAddr);
         LOG.info("Use " + serverName + " as the consumer tag, make sure it's ok.");
+        LOG.info("libing:debug:NewMS.java.main diaoyong MsgServer.startConsumer: and topic is:"+topic);
         MsgServer.startConsumer(conf.getVar(ConfVars.ZOOKEEPERADDRESS), topic,
-            "newms-" + serverName);
+            "newms-" + serverName,nameSrvAddr);
         // Producer use meta-test topic
         MsgServer.startProducer();
         MsgServer.startLocalConsumer();

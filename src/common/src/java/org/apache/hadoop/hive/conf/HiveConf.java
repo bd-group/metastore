@@ -739,9 +739,15 @@ public class HiveConf extends Configuration {
     FLSELECTOR_WATCH_NONE("flselector.watch.none", null),
     FLSELECTOR_WATCH_FAIR_NODES("flselector.watch.fair_nodes", null),
     FLSELECTOR_WATCH_ORDERED_ALLOC("flselector.watch.ordered_alloc", null),
+    FLSELECTOR_WATCH_LOONGSTORE("flselector.watch.all",null),
 
     // Feature Test
     MS_FEATURE_TEST("ms.feature.test", false),
+
+    //add by lb
+    ROCKETMQNAMESRVADDRESS("rocketmq.namesrv.address", "127.0.0.1:9876"),
+    IS_ROCKETMQ_SELECTED("rocketmq.select", true),
+
 
     //add by zy
     NEWMS_IS_USE_METASTORE_CLIENT("newms.isUseMetaStoreClient", true),

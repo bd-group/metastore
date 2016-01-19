@@ -41,6 +41,8 @@ import com.taobao.metamorphosis.utils.ZkUtils.ZKConfig;
 public class MsgServer {
 	private static final Log LOG = LogFactory.getLog(MsgServer.class);
 	static Producer producer = null;
+	static RocketMqProducer rmProducer = null;
+
 	static int times = 3;
 	private static boolean initalized = false;
 	private static HiveConf conf = new HiveConf();
@@ -51,6 +53,12 @@ public class MsgServer {
 	private static ConcurrentLinkedQueue<DDLMsg> failed_queue = new ConcurrentLinkedQueue<DDLMsg>();
 	private static ConcurrentLinkedQueue<DDLMsg> localQueue = new ConcurrentLinkedQueue<DDLMsg>();
 	private static LocalConsumer lc = new LocalConsumer();
+
+	//add for rocketmq
+	private static boolean isRocketMqSelected = conf.getBoolVar(ConfVars.IS_ROCKETMQ_SELECTED);
+//	private static String producerGroupname = "";
+//	private static String namesvrAddr = conf.getVar(ConfVars.ROCKETMQNAMESRVADDRESS);
+
 
 	public static boolean isQueueEmpty() {
 		LOG.info("Queue size " + queue.size() + ", failed_queue " + failed_queue.size() +
@@ -77,8 +85,8 @@ public class MsgServer {
 	      queue.add(msg);
 	      send.release();
 	    } else {
-	      LOG.info("SLAVE ignore ddl msg to topic=" + Producer.topic + ":" +
-	          MSGFactory.getMsgData2(msg));
+//	      LOG.info("SLAVE ignore ddl msg to topic=" + Producer.topic + ":" +
+//	          MSGFactory.getMsgData2(msg));
 	    }
 	  }
 	}
@@ -108,15 +116,35 @@ public class MsgServer {
 		}
 	}
 
-	public static void startConsumer(String zkaddr, String topic, String group) throws Exception
+	public static void startConsumer(String zkaddr, String topic, String group, String nameSrvAddr) throws Exception
 	{
-		Consumer c = new Consumer(zkaddr, topic, group);
+	  LOG.info("libing:debug,into startConsumer function and isRocketMqSelected is :"+ isRocketMqSelected);
+	  Consumer c = null;
+	  RocketMqConsumer rmConsumer = null;
+	  if(!isRocketMqSelected) {
+
+      c = new Consumer(zkaddr, topic, group);
+      LOG.info("libing,debug:new Consumer"+c.getClass().toString());
+    } else {
+
+      rmConsumer = RocketMqConsumer.getInstance(nameSrvAddr,topic);
+      LOG.info("libing,debug:new RocketConsumer: "+rmConsumer.getClass().toString());
+    }
 		// Note-XXX: for old2new process, do NOT consume msg, otherwise, message in oldms
 		// will be consumed.
 		if (conf.getBoolVar(ConfVars.NEWMS_CONSUME_MSG)) {
-		  c.consume();
+		  if(!isRocketMqSelected) {
+		    c.consume();
+	    } else {
+	      rmConsumer.consume();
+	    }
 		}
-		c.startMsgProcessing();
+		if(c != null) {
+      c.startMsgProcessing();
+    }
+		if(rmConsumer != null) {
+      rmConsumer.startMsgProcessing();
+    }
 	}
 
 	public static void startLocalConsumer()
@@ -126,17 +154,35 @@ public class MsgServer {
 
 	private static void initalize() throws MetaClientException {
 //		Producer.config(zkAddr);
-		producer = Producer.getInstance();
-		initalized = true;
-		zkfailed = false;
+	  if(!isRocketMqSelected)
+	  {
+	    producer = Producer.getInstance();
+	    initalized = true;
+	    zkfailed = false;
+	  }
+	  else {
+      rmProducer = RocketMqProducer.getInstance();
+      initalized = true;
+      zkfailed = false;
+    }
 
 	}
 
 	private static void reconnect() throws MetaClientException {
-//		Producer.config(zkAddr);
-		producer = Producer.getInstance();
-		initalized = true;
-		zkfailed = false;
+	  if(!isRocketMqSelected)
+    {
+      producer = Producer.getInstance();
+      initalized = true;
+      zkfailed = false;
+    }
+    else {
+      rmProducer = RocketMqProducer.getInstance();
+      initalized = true;
+      zkfailed = false;
+    }
+//		producer = Producer.getInstance();
+//		initalized = true;
+//		zkfailed = false;
 	}
 
 	private static boolean sendDDLMsg(DDLMsg msg) {
@@ -162,7 +208,13 @@ public class MsgServer {
 
     boolean success = false;
     try{
-      success = producer.sendMsg(jsonMsg);
+      if (!isRocketMqSelected) {
+        success = producer.sendMsg(jsonMsg);
+      }
+      else {
+        success = rmProducer.sendMessage(jsonMsg);
+      }
+
     }catch(InterruptedException ie){
       return retrySendMsg(jsonMsg,times-1);
     } catch (MetaClientException e) {
@@ -212,7 +264,6 @@ public class MsgServer {
 	          }else{
 
 	            failed_queue.remove(queue.poll());
-
 	            if(!failed_queue.isEmpty()){
 	              while( !failed_queue.isEmpty()){//retry send faild msg,old msg should send as soon as possible.
 	                DDLMsg retry_msg =failed_queue.peek();
@@ -257,6 +308,7 @@ public class MsgServer {
       try{
         sessionFactory = new MetaMessageSessionFactory(metaClientConfig);
         producer = sessionFactory.createProducer();
+        LOG.info("libing:debug:MsgServer.new metaq producer():topic is :"+ topic);
         producer.publish(topic);
       }
       catch(MetaClientException e){
@@ -342,7 +394,7 @@ public class MsgServer {
         cc.setConsumeFromMaxOffset();
       }
 			MessageConsumer consumer = sessionFactory.createConsumer(cc);
-
+			LOG.info("libing.debug:MsgServer.Consumer.subscribe topic is : "+ topic);
 			// 订阅事件，MessageListener是事件处理接口
 			consumer.subscribe(topic, 1024, new MessageListener() {
 
