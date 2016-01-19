@@ -1994,6 +1994,10 @@ public class ObjectStore implements RawStore, Configurable {
   }
 
   public void createOrUpdateDevice(DeviceInfo di, Node node, NodeGroup ng) throws MetaException, InvalidObjectException {
+    if (di == null || di.dev == null) {
+      throw new InvalidObjectException("Invalid device: " + (di != null ? di.dev : "null DeviceInfo"));
+    }
+
     MDevice md = getMDevice(di.dev.trim());
     boolean doCreate = false;
     String ng_name = null;
