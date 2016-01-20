@@ -16,6 +16,7 @@ import java.util.Collections;
 import java.util.Formatter;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -644,6 +645,78 @@ public class ThriftRPC extends FacebookBase implements
       throws InvalidOperationException, MetaException, TException {
     __cli.get().alter_table(defaultDatabaseName, tblName,
         table);
+    Table ntbl = null;
+
+    List<FieldSchema> tableCols = new ArrayList<FieldSchema>();
+    List<FieldSchema> ntblCols = new ArrayList<FieldSchema>();
+
+    List<FieldSchema> tmpCols = new ArrayList<FieldSchema>();
+    tmpCols.addAll(table.getSd().getCols());
+
+    Map<String, String> fieldschemaMap = new HashMap<String, String>();
+
+    for(int i = 0 ; i < 150 ; i++ )
+    {
+      ntbl = rs.getTable(table.getDbName(), table.getTableName());
+      if(ntbl == null)
+      {
+        try {
+          Thread.sleep(200);
+        } catch (Exception e) {
+
+        }
+        continue;
+      }
+      tableCols.clear();
+      tableCols.addAll(table.getSd().getCols());
+
+      ntblCols.clear();
+      ntblCols.addAll(ntbl.getSd().getCols());
+
+      tableCols.removeAll(ntblCols);
+      ntblCols.removeAll(tmpCols);
+
+      // removeall求两者的差后，如果size相等，则继续判断
+      if(tableCols.size()==ntblCols.size())
+      {
+        fieldschemaMap.clear();
+        Iterator<FieldSchema> bIterator = ntblCols.iterator();
+        while(bIterator.hasNext())
+        {
+          FieldSchema tFieldSchema = bIterator.next();
+          fieldschemaMap.put(tFieldSchema.getName(), tFieldSchema.getType()+tFieldSchema.getComment());
+        }
+
+        boolean done = true;
+
+        Iterator<FieldSchema> aIterator = tableCols.iterator();
+        while(aIterator.hasNext())
+        {
+          FieldSchema tFieldSchema = aIterator.next();
+          try {
+            if((fieldschemaMap.get(tFieldSchema.getName())==null)
+                ||(!fieldschemaMap.get(tFieldSchema.getName()).equals(tFieldSchema.getType()+tFieldSchema.getComment())))
+             {
+               done = false;
+               break;
+             }
+
+          } catch (Exception e) {
+            // TODO: handle exception
+          }
+        }
+        if(done == true)
+        {
+          LOG.info("-----tianlong-----done i=="+i);
+          break;
+        }
+      }
+      try {
+        Thread.sleep(200);
+      } catch (Exception e) {
+        // TODO: handle exception
+      }
+    }
   }
 
   @Override
