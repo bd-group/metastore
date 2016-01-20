@@ -5267,7 +5267,7 @@ public class ObjectStore implements RawStore, Configurable {
         			 {
         				 for(String bt : MetaStoreUtils.BUSI_TYPES)
               	 {
-              		 if(nmf.getComment() != null && nmf.getComment().indexOf(bt) != -1)
+              		 if(omf.getComment().indexOf(bt) != -1)
               		 {
               			 HashMap<String, Object> params = new HashMap<String, Object>();
               			 params.put("db_name", oldt.getDatabase().getName());
@@ -5277,7 +5277,7 @@ public class ObjectStore implements RawStore, Configurable {
               			 params.put("comment", nmf.getComment());
               			 msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED,db_id,-1, pm, oldt,params));
               			 msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_ALT_TABLE_PARAM,db_id,-1, pm, oldt,params));
-										 this.deleteBusiTypeCol(new MBusiTypeColumn(bt, oldt, nmf.getName()));
+										 this.deleteBusiTypeCol(new MBusiTypeColumn(bt, oldt, omf.getName()));
 
               		 }
               	 }
