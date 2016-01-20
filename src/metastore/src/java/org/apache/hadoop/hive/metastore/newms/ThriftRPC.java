@@ -707,7 +707,6 @@ public class ThriftRPC extends FacebookBase implements
         }
         if(done == true)
         {
-          LOG.info("-----tianlong-----done i=="+i);
           break;
         }
       }
