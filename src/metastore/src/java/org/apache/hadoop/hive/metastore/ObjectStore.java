@@ -2214,7 +2214,7 @@ public class ObjectStore implements RawStore, Configurable {
   	MTable mtbl = mbc.getTable();
     try {
       openTransaction();
-      Query query = pm.newQuery(MBusiTypeColumn.class, "table.tableName == tabName && table.database.name == dbName && column == column");
+      Query query = pm.newQuery(MBusiTypeColumn.class, "table.tableName == tabName && table.database.name == dbName && this.column == column");
       query.declareParameters("java.lang.String tabName, java.lang.String dbName, java.lang.String column");
       Collection cols = (Collection)query.execute(mtbl.getTableName(), mtbl.getDatabase().getName(), mbc.getColumn());
       Iterator iter = cols.iterator();
@@ -5155,6 +5155,15 @@ public class ObjectStore implements RawStore, Configurable {
         msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_ALT_TABLE_PARAM,db_id,-1, pm, oldt,params));
       }
 
+      // add or delete nodegroup
+      if(!oldt.getGroupDistribute().equals(newt.getGroupDistribute()))
+      {
+        HashMap<String, Object> params = new HashMap<String, Object>();
+        params.put("db_name", oldt.getDatabase().getName());
+        params.put("table_name", oldt.getTableName());
+        msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_ALT_TALBE_DISTRIBUTE, db_id, -1, pm, oldt, params));
+      }
+
       //alter comment
       {
       	 List<MFieldSchema> oldCols = new ArrayList<MFieldSchema>();
@@ -5163,6 +5172,7 @@ public class ObjectStore implements RawStore, Configurable {
          newCols.addAll( newt.getSd().getCD().getCols());
 
          oldCols.removeAll(newCols);
+
          for(MFieldSchema mf : oldCols)		//del col, delete busitype
          {
         	 for(String bt : MetaStoreUtils.BUSI_TYPES)
@@ -5181,11 +5191,13 @@ public class ObjectStore implements RawStore, Configurable {
 
         		 }
         	 }
+
          }
          oldCols.clear();
          oldCols.addAll( oldt.getSd().getCD().getCols());
 
          newCols.removeAll(oldCols);
+
          for(MFieldSchema mf : newCols)		//add col, insert busitype
          {
         	 for(String bt : MetaStoreUtils.BUSI_TYPES)
@@ -5208,6 +5220,7 @@ public class ObjectStore implements RawStore, Configurable {
 								}
         		 }
         	 }
+
          }
          newCols.clear();
          newCols.addAll(newt.getSd().getCD().getCols());
@@ -5215,12 +5228,14 @@ public class ObjectStore implements RawStore, Configurable {
 
          oldCols.retainAll(newCols);			//留下的是两者的交集
          newCols.retainAll(oldCols);
+
          for(MFieldSchema omf : oldCols)
          {
         	 for(MFieldSchema nmf : newCols)
         	 {
         		 if(omf.equals(nmf))
         		 {
+
         			 if(nmf.getComment() == null && omf.getComment() == null)
         			 {
         				 //nothing to do
@@ -5271,22 +5286,6 @@ public class ObjectStore implements RawStore, Configurable {
         			 {
         				 for(String bt : MetaStoreUtils.BUSI_TYPES)
         				 {
-        					 if(nmf.getComment().indexOf(bt) != -1){			//insert busitype
-        						 HashMap<String, Object> params = new HashMap<String, Object>();
-              			 params.put("db_name", oldt.getDatabase().getName());
-                     params.put("table_name", oldt.getTableName());
-              			 params.put("column_name", nmf.getName());
-              			 params.put("action", "add");
-              			 params.put("comment", nmf.getComment());
-              			 msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED,db_id,-1, pm, oldt,params));
-              			 msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_ALT_TABLE_PARAM,db_id,-1, pm, oldt,params));
-										 this.insertBusiTypeCol(new MBusiTypeColumn(bt, oldt, nmf.getName()));
-              			 try {
-											this.append_busi_type_datacenter(new BusiTypeDatacenter(bt, convertToDatabase(oldt.getDatabase())));
-										} catch (TException e) {
-											LOG.error(e,e);
-										}
-        					 }
         					 if(omf.getComment().indexOf(bt) != -1){			//del busitype
 	    	        			 HashMap<String, Object> params = new HashMap<String, Object>();
 	    	        			 params.put("db_name", oldt.getDatabase().getName());
@@ -5297,9 +5296,29 @@ public class ObjectStore implements RawStore, Configurable {
 	    	        			 msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED,db_id,-1, pm, oldt,params));
 	    	        			 msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_ALT_TABLE_PARAM,db_id,-1, pm, oldt,params));
 											 this.deleteBusiTypeCol(new MBusiTypeColumn(bt, oldt, omf.getName()));
-
         					 }
         				 }
+
+        				 for(String bt : MetaStoreUtils.BUSI_TYPES)
+                 {
+
+                   if(nmf.getComment().indexOf(bt) != -1){      //insert busitype
+                     HashMap<String, Object> params = new HashMap<String, Object>();
+                     params.put("db_name", oldt.getDatabase().getName());
+                     params.put("table_name", oldt.getTableName());
+                     params.put("column_name", nmf.getName());
+                     params.put("action", "add");
+                     params.put("comment", nmf.getComment());
+                     msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED,db_id,-1, pm, oldt,params));
+                     msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_ALT_TABLE_PARAM,db_id,-1, pm, oldt,params));
+                     this.insertBusiTypeCol(new MBusiTypeColumn(bt, oldt, nmf.getName()));
+                     try {
+                      this.append_busi_type_datacenter(new BusiTypeDatacenter(bt, convertToDatabase(oldt.getDatabase())));
+                    } catch (TException e) {
+                      LOG.error(e,e);
+                    }
+                   }
+                 }
         			 }
 
         		 }
@@ -5691,13 +5710,98 @@ public class ObjectStore implements RawStore, Configurable {
          newSd != null && newSd.getCD() != null &&
          newSd.getCD().getCols() != null &&
          convertToFieldSchemas(newSd.getCD().getCols()).
-         equals(convertToFieldSchemas(oldSd.getCD().getCols()))
+         equals(convertToFieldSchemas(oldSd.getCD().getCols()))     // 这里先将MFieldSchema转化为FieldSchema，然后调用equals方法，因为MFieldSchema的equals不一样
        )) {
         oldSd.setCD(newSd.getCD());
     }
 
     //If oldCd does not have any more references, then we should delete it
     // from the backend db
+    removeUnusedColumnDescriptor(oldCD);
+    oldSd.setBucketCols(newSd.getBucketCols());
+    oldSd.setCompressed(newSd.isCompressed());
+    oldSd.setInputFormat(newSd.getInputFormat());
+    oldSd.setOutputFormat(newSd.getOutputFormat());
+    oldSd.setNumBuckets(newSd.getNumBuckets());
+    oldSd.getSerDeInfo().setName(newSd.getSerDeInfo().getName());
+    oldSd.getSerDeInfo().setSerializationLib(
+        newSd.getSerDeInfo().getSerializationLib());
+    oldSd.getSerDeInfo().setParameters(newSd.getSerDeInfo().getParameters());
+    oldSd.setSkewedColNames(newSd.getSkewedColNames());
+    oldSd.setSkewedColValues(newSd.getSkewedColValues());
+    oldSd.setSkewedColValueLocationMaps(newSd.getSkewedColValueLocationMaps());
+    oldSd.setSortCols(newSd.getSortCols());
+    oldSd.setParameters(newSd.getParameters());
+    oldSd.setStoredAsSubDirectories(newSd.isStoredAsSubDirectories());
+  }
+
+  private void copyMSDMSchemaToTable(MStorageDescriptor newSd, MStorageDescriptor oldSd)
+  {
+
+    oldSd.setLocation(newSd.getLocation());
+    MColumnDescriptor oldCD = oldSd.getCD();
+    MColumnDescriptor tmpCD = new MColumnDescriptor();
+    // 关键在setCd这里
+    if (!(oldSd != null && oldSd.getCD() != null &&
+        oldSd.getCD().getCols() != null &&
+        newSd != null && newSd.getCD() != null &&
+        newSd.getCD().getCols() != null &&
+        convertToFieldSchemas(newSd.getCD().getCols()).
+        equals(convertToFieldSchemas(oldSd.getCD().getCols()))     // 这里先将MFieldSchema转化为FieldSchema，然后调用equals方法，因为MFieldSchema的equals不一样
+      )) {
+
+      ArrayList<MFieldSchema> oldMFieldSchemas = new ArrayList<MFieldSchema>();
+      oldMFieldSchemas.addAll(oldSd.getCD().getCols());
+
+      ArrayList<MFieldSchema> newMFieldSchemas = new ArrayList<MFieldSchema>();
+      newMFieldSchemas.addAll(newSd.getCD().getCols());
+
+      // 先假设只有comment不同，剩下的列名、列类型一样，因为只能通过schema去修改
+
+      Map<String,MFieldSchema> newSDMFieldschemaMap = new HashMap<String, MFieldSchema>();
+      Iterator<MFieldSchema> newMFieldschemaIterator = newMFieldSchemas.iterator();
+      while(newMFieldschemaIterator.hasNext())
+      {
+        MFieldSchema tmpMFieldSchema = newMFieldschemaIterator.next();
+        newSDMFieldschemaMap.put(tmpMFieldSchema.getName(), tmpMFieldSchema);
+      }
+
+      ArrayList<MFieldSchema> res = new ArrayList<MFieldSchema>();
+      // 遍历oldSD,如果发现并且其comment不为空则加入oldCD中
+      // 问题：如果不在newSD，中也就是删除的或者操作table的这个考虑么？
+      Iterator<MFieldSchema> oldMFieldschemaIterator = oldMFieldSchemas.iterator();
+      while(oldMFieldschemaIterator.hasNext())
+      {
+        MFieldSchema tmpFieldSchema = oldMFieldschemaIterator.next();
+        // 这个判断是假设对列的修改操作（除了comment）全是通过schema操作的
+        if( newSDMFieldschemaMap.get(tmpFieldSchema.getName())!=null && tmpFieldSchema.getComment()!=null )
+        {
+          newSDMFieldschemaMap.put(tmpFieldSchema.getName(), tmpFieldSchema);
+        }
+
+        /*else {
+          // 不在newSD中，则要删除busitype表里面的内容
+          for(String bt : MetaStoreUtils.BUSI_TYPES)
+          {
+            if(tmpFieldSchema.getComment()!=null && tmpFieldSchema.getComment().indexOf(bt)!=-1)
+            {
+              this.deleteBusiTypeCol(mbc);
+            }
+          }
+        }
+        */
+      }
+
+      for(Map.Entry<String, MFieldSchema> entry : newSDMFieldschemaMap.entrySet())
+      {
+        res.add(entry.getValue());
+      }
+
+      tmpCD.setCols(res);
+      oldSd.setCD(tmpCD);
+   }
+
+    removeUnusedColumnDescriptor(tmpCD);
     removeUnusedColumnDescriptor(oldCD);
     oldSd.setBucketCols(newSd.getBucketCols());
     oldSd.setCompressed(newSd.isCompressed());
@@ -10422,6 +10526,29 @@ public MUser getMUser(String userName) {
             p.put("column_name",omfs.getName());
             p.put("column_type", omfs.getType());
             msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_ALT_TALBE_DEL_COL, db_id, -1, pm, oldt, p));
+
+            Map<String, String> nameToCommentMap = new HashMap<String, String>();
+            ArrayList<MFieldSchema> oldtArrayList = new ArrayList<MFieldSchema>();
+            oldtArrayList.addAll(oldt.getSd().getCD().getCols());
+            Iterator<MFieldSchema> oldtIterator = oldtArrayList.iterator();
+            while(oldtIterator.hasNext())
+            {
+              MFieldSchema tmpFieldSchema = oldtIterator.next();
+              nameToCommentMap.put(tmpFieldSchema.getName(), tmpFieldSchema.getComment());
+            }
+
+            for(String bt : MetaStoreUtils.BUSI_TYPES)
+            {
+              // 删除列，可以通过看其comment不为null，并且可以找得到bt
+              // 现在知道schema的列信息，通过该列获取MTable的列信息，判断其comment是否为null，对表busitype进行操作。
+
+              if(nameToCommentMap.get(omfs.getName())!=null)
+              {
+                msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED,db_id,-1, pm, oldt,params));
+                this.deleteBusiTypeCol(new MBusiTypeColumn(bt, oldt, omfs.getName()));
+              }
+            }
+
           }
         }
       }
@@ -10447,6 +10574,17 @@ public MUser getMUser(String userName) {
             p.put("column_name",nmfs.getName());
             p.put("column_type", nmfs.getType());
             msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_ALT_TALBE_ADD_COL, db_id, -1, pm, oldt, p));
+
+            for(String bt : MetaStoreUtils.BUSI_TYPES)
+            {
+              // 增加列，因为schema不提供comment的修改操作，所以if条件不满足
+              if(nmfs.getComment()!=null && nmfs.getComment().indexOf(bt)!=-1)
+              {
+                msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED,db_id,-1, pm, oldt,params));
+                this.insertBusiTypeCol(new MBusiTypeColumn(bt, oldt, nmfs.getName()));
+              }
+            }
+
           }
         }
       }
@@ -10495,6 +10633,252 @@ public MUser getMUser(String userName) {
           }
         }
       }
+
+
+      // 2015年12月02日暂时不提供修改schema comment的操作。
+//      {
+//          List<MFieldSchema> oldCols = new ArrayList<MFieldSchema>();
+//          oldCols.addAll(oldSchema.getSd().getCD().getCols());
+//          List<MFieldSchema> newCols = new ArrayList<MFieldSchema>();
+//          newCols.addAll(mSchema.getSd().getCD().getCols());
+//
+//          oldCols.retainAll(newCols);
+//          newCols.retainAll(oldCols);
+//          for(MFieldSchema omf : oldCols)
+//          {
+//            for(MFieldSchema nmf : newCols)
+//            {
+//              if(omf.equals(nmf))
+//              {
+//                  // 应该不存在吧？？但是
+//                  if(nmf.getComment()==null && omf.getComment()==null)
+//                  {
+//                    // nothing to do with alter schema by tianlong
+//                    // alter talbe and delete all busitype because nmf.comment equls null
+//                    for(MTable oldt : mtbls)
+//                    {
+//                      HashMap<String,Object> p = new HashMap<String,Object>();
+//                      p.put("db_name", oldt.getDatabase().getName());
+//                      p.put("table_name", oldt.getTableName());
+//                      p.put("column_name",nmf.getName());
+//                      p.put("comment", nmf.getComment());
+//                      msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_ALT_TABLE_PARAM, db_id, -1, pm, oldt, p));
+//                      for(String bt : MetaStoreUtils.BUSI_TYPES)
+//                      {
+//                        // TODO Auto-generated method stub??
+//                        //msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED, db_id, -1, pm, oldt, p));
+//                        this.deleteBusiTypeCol(new MBusiTypeColumn(bt,oldt,nmf.getName()));
+//                      }
+//                      // 判断每个table中该列是否有comment，有的话，则删除，并且发消息
+//                      ArrayList<MFieldSchema> oldtMFieldSchemas = new ArrayList<MFieldSchema>();
+//                      oldtMFieldSchemas.addAll(oldt.getSd().getCD().getCols());
+//                      Iterator<MFieldSchema> iterator = oldtMFieldSchemas.iterator();
+//                      while(iterator.hasNext())
+//                      {
+//                        MFieldSchema tmpMFieldSchema = iterator.next();
+//                        // 找到该列，并且只有当其comment不为null的时候才发消息
+//                        if(tmpMFieldSchema.getName().equals(nmf.getName()) && tmpMFieldSchema.getComment()!=null )
+//                        {
+//                          msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED, db_id, -1, pm, oldt, p));
+//                          break;
+//                        }
+//                      }
+//
+//                    }
+//
+//                  }
+//                //omf.comment==null 所以nmf.comment！=null，所以删的时候可以不做改变，只是在新加的时候发消息
+//                  else if(omf.getComment()==null)
+//                  {
+//                    // first: alter schema
+//                    params.put("schema_name", oldSchema.getSchemaName());
+//                    params.put("column_name",omf.getName());
+//                    params.put("comment", nmf.getComment());
+//                    msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_MODIFY_SCHEMA_ALT_COL_COMMENT, db_id, -1, pm, oldSchema, params));
+//
+//                    // alter table and delte busitype for every table
+//                    for(MTable oldt : mtbls)
+//                    {
+//                      HashMap<String,Object> p = new HashMap<String,Object>();
+//                      p.put("db_name", oldt.getDatabase().getName());
+//                      p.put("table_name", oldt.getTableName());
+//                      p.put("column_name",nmf.getName());
+//                      p.put("comment", nmf.getComment());
+//                      msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_ALT_TALBE_ADD_COL, db_id, -1, pm, oldt, p));
+//                      p.put("action", "del");
+//                      msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED, db_id, -1, pm, oldt, p));
+//                      for(String bt : MetaStoreUtils.BUSI_TYPES)
+//                      {
+//                        // TODO Auto-generated method stub??
+//                        // how to send msgs
+//                        //LOG.info("--------------tianlong--------for loop deleteBusiTypeCol");
+//                        this.deleteBusiTypeCol(new MBusiTypeColumn(bt,oldt,nmf.getName()));
+//                      }
+//                      /*
+//                      ArrayList<MFieldSchema> oldtMFieldSchemas = new ArrayList<MFieldSchema>();
+//                      oldtMFieldSchemas.addAll(oldt.getSd().getCD().getCols());
+//                      Iterator<MFieldSchema> iterator = oldtMFieldSchemas.iterator();
+//                      while(iterator.hasNext())
+//                      {
+//                        MFieldSchema tmpMFieldSchema = iterator.next();
+//                        if(tmpMFieldSchema.getName().equals(nmf.getName()) && tmpMFieldSchema.getComment()!=null )
+//                        {
+//                          msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED, db_id, -1, pm, oldt, p));
+//                          break;
+//                        }
+//                      }
+//                      */
+//                    }
+//
+//                    // add busitype for every table
+//                    for(MTable oldt : mtbls)
+//                    {
+//                      HashMap<String,Object> p = new HashMap<String,Object>();
+//                      p.put("db_name", oldt.getDatabase().getName());
+//                      p.put("table_name", oldt.getTableName());
+//                      p.put("column_name",nmf.getName());
+//                      p.put("comment", nmf.getComment());
+//                      msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_ALT_TALBE_ADD_COL, db_id, -1, pm, oldt, p));
+//                      p.put("action", "add");
+//                      msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED, db_id, -1, pm, oldt, p));
+//                      for(String bt : MetaStoreUtils.BUSI_TYPES)
+//                      {
+//                        if(nmf.getComment().indexOf(bt)!=-1)
+//                        {
+//                          this.insertBusiTypeCol(new MBusiTypeColumn(bt,oldt,nmf.getName()));
+//                        }
+//
+//                        ArrayList<MFieldSchema> oldtMFieldSchemas = new ArrayList<MFieldSchema>();
+//                        oldtMFieldSchemas.addAll(oldt.getSd().getCD().getCols());
+//                        Iterator<MFieldSchema> iterator = oldtMFieldSchemas.iterator();
+//                        while(iterator.hasNext())
+//                        {
+//                          MFieldSchema tmpMFieldSchema = iterator.next();
+//                          if(tmpMFieldSchema.getName().equals(nmf.getName()) && !tmpMFieldSchema.getComment().equals(nmf.getComment()) )
+//                          {
+//                            msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED, db_id, -1, pm, oldt, p));
+//                            break;
+//                          }
+//                        }
+//
+//                      }
+//                    }
+//                  }
+//                  // nmf.comment==null,则old.comment!=null
+//                  else if(nmf.getComment()==null)
+//                  {
+//                    // first: alter schema
+//                    params.put("schema_name", oldSchema.getSchemaName());
+//                    params.put("column_name",omf.getName());
+//                    params.put("comment", nmf.getComment());
+//                    msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_MODIFY_SCHEMA_ALT_COL_COMMENT, db_id, -1, pm, oldSchema, params));
+//
+//                    // alter table and delte busitype for every table
+//                    for(MTable oldt : mtbls)
+//                    {
+//                      HashMap<String,Object> p = new HashMap<String,Object>();
+//                      p.put("db_name", oldt.getDatabase().getName());
+//                      p.put("table_name", oldt.getTableName());
+//                      p.put("column_name",nmf.getName());
+//                      p.put("comment", nmf.getComment());
+//                      msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_ALT_TALBE_ADD_COL, db_id, -1, pm, oldt, p));
+//                      p.put("action", "del");
+//                      msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED, db_id, -1, pm, oldt, p));
+//                      for(String bt : MetaStoreUtils.BUSI_TYPES)
+//                      {
+//                        // TODO Auto-generated method stub??
+//                        // how to send msgs
+//                        //LOG.info("--------------tianlong--------for loop deleteBusiTypeCol");
+//                        this.deleteBusiTypeCol(new MBusiTypeColumn(bt,oldt,nmf.getName()));
+//                      }
+//
+//                      ArrayList<MFieldSchema> oldtMFieldSchemas = new ArrayList<MFieldSchema>();
+//                      oldtMFieldSchemas.addAll(oldt.getSd().getCD().getCols());
+//                      Iterator<MFieldSchema> iterator = oldtMFieldSchemas.iterator();
+//                      while(iterator.hasNext())
+//                      {
+//                        MFieldSchema tmpMFieldSchema = iterator.next();
+//                        if(tmpMFieldSchema.getName().equals(nmf.getName()) && !tmpMFieldSchema.getComment().equals(nmf.getComment()) )
+//                        {
+//                          msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED, db_id, -1, pm, oldt, p));
+//                          break;
+//                        }
+//                      }
+//                    }
+//
+//                  }
+//                  // 两者都不为空
+//                  else if(!nmf.getComment().equals(omf.getComment()))
+//                  {
+//                    // first: alter schema
+//                    params.put("schema_name", oldSchema.getSchemaName());
+//                    params.put("column_name",omf.getName());
+//                    params.put("comment", nmf.getComment());
+//                    msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_MODIFY_SCHEMA_ALT_COL_COMMENT, db_id, -1, pm, oldSchema, params));
+//
+//                    // alter table and delte busitype for every table
+//                    for(MTable oldt : mtbls)
+//                    {
+//                      HashMap<String,Object> p = new HashMap<String,Object>();
+//                      p.put("db_name", oldt.getDatabase().getName());
+//                      p.put("table_name", oldt.getTableName());
+//                      p.put("column_name",nmf.getName());
+//                      p.put("comment", nmf.getComment());
+//                      msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_ALT_TALBE_ADD_COL, db_id, -1, pm, oldt, p));
+//                      p.put("action", "del");
+//                      msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED, db_id, -1, pm, oldt, p));
+//                      for(String bt : MetaStoreUtils.BUSI_TYPES)
+//                      {
+//                        // TODO Auto-generated method stub??
+//                        // how to send msgs
+//                        //LOG.info("--------------tianlong--------for loop deleteBusiTypeCol");
+//                        this.deleteBusiTypeCol(new MBusiTypeColumn(bt,oldt,nmf.getName()));
+//                      }
+//                    }
+//
+//                    // add busitype for every table
+//                    for(MTable oldt : mtbls)
+//                    {
+//                      HashMap<String,Object> p = new HashMap<String,Object>();
+//                      p.put("db_name", oldt.getDatabase().getName());
+//                      p.put("table_name", oldt.getTableName());
+//                      p.put("column_name",nmf.getName());
+//                      p.put("comment", nmf.getComment());
+//                      msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_ALT_TALBE_ADD_COL, db_id, -1, pm, oldt, p));
+//                      p.put("action", "add");
+//                      msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED, db_id, -1, pm, oldt, p));
+//                      for(String bt : MetaStoreUtils.BUSI_TYPES)
+//                      {
+//                        if(nmf.getComment().indexOf(bt)!=-1)
+//                        {
+//                          this.insertBusiTypeCol(new MBusiTypeColumn(bt,oldt,nmf.getName()));
+//                        }
+//                      }
+//
+//                      ArrayList<MFieldSchema> oldtMFieldSchemas = new ArrayList<MFieldSchema>();
+//                      oldtMFieldSchemas.addAll(oldt.getSd().getCD().getCols());
+//                      Iterator<MFieldSchema> iterator = oldtMFieldSchemas.iterator();
+//                      while(iterator.hasNext())
+//                      {
+//                        MFieldSchema tmpMFieldSchema = iterator.next();
+//                        if(tmpMFieldSchema.getName().equals(nmf.getName()) && !tmpMFieldSchema.getComment().equals(omf.getComment()) )
+//                        {
+//                          msgs.add(MSGFactory.generateDDLMsg(MSGType.MSG_TABLE_BUSITYPE_CHANGED, db_id, -1, pm, oldt, p));
+//                          break;
+//                        }
+//                      }
+//
+//
+//                    }
+//                  }
+//              }
+//            }
+//          }
+//
+//      }
+
+
+
       //alt schema param    不知道判断schema的参数有没有和判断table有不一样的地方
       if(!tableParamEquals(oldSchema.getParameters(), mSchema.getParameters()) )
       {
@@ -10530,11 +10914,17 @@ public MUser getMUser(String userName) {
       for(MTable oldmt : mtbls){
         // For now only alter name, owner, paramters, cols, bucketcols are allowed
         oldmt.setTableName(mSchema.getSchemaName().toLowerCase());
-        oldmt.setParameters(mSchema.getParameters());
+        //oldmt.setParameters(mSchema.getParameters());
+        // 更新table的parameters
+        oldmt.getParameters().put("transient_lastDdlTime", mSchema.getParameters().get("last_modified_time"));
+        oldmt.getParameters().put("last_modified_time", mSchema.getParameters().get("last_modified_time"));
+        oldmt.getParameters().put("last_modified_by", mSchema.getParameters().get("last_modified_by"));
         oldmt.setOwner(mSchema.getOwner());
         // Fully copy over the contents of the new SD into the old SD,
         // so we don't create an extra SD in the metastore db that has no references.
-        copyMSD(mSchema.getSd(), oldmt.getSd());//Schema的修改不涉及修改归属地/分区方法和类型
+        //copyMSD(mSchema.getSd(), oldmt.getSd());//Schema的修改不涉及修改归属地/分区方法和类型
+        copyMSDMSchemaToTable(mSchema.getSd(), oldmt.getSd());
+
 //        oldmt.setDatabase(mSchema.getDatabase());
         oldmt.setRetention(mSchema.getRetention());
 //        oldmt.setPartitionKeys(mSchema.getPartitionKeys());
