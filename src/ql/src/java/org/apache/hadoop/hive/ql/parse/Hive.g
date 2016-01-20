@@ -142,6 +142,7 @@ TOK_TABLE_PARTITION;
 TOK_ALTERTABLE_FILEFORMAT;
 TOK_ALTERTABLE_LOCATION;
 TOK_ALTERTABLE_PROPERTIES;
+TOK_ALTERTABLE_DROP_PROPERTIES;
 TOK_ALTERTABLE_CHANGECOL_AFTER_POSITION;
 TOK_ALTERINDEX_REBUILD;
 TOK_ALTERINDEX_PROPERTIES;
@@ -174,6 +175,7 @@ TOK_TABLEROWFORMATLINES;
 TOK_TBLSEQUENCEFILE;
 TOK_TBLTEXTFILE;
 TOK_TBLRCFILE;
+TOK_TBLLUCENEFILE;
 TOK_TABLEFILEFORMAT;
 TOK_FILEFORMAT_GENERIC;
 TOK_OFFLINE;
@@ -367,6 +369,7 @@ TOK_CREATENODEASSIGNMENT;
 TOK_DROPNODEASSIGNMENT;
 TOK_ALTERSCHEMA_RENAME;
 TOK_ALTERSCHEMA_ADDCOLS;
+TOK_ALTERSCHEMA_DELCOL;
 TOK_ALTERSCHEMA_REPLACECOLS;
 TOK_ALTERSCHEMA_RENAMECOL;
 TOK_ALTERSCHEMA_CHANGECOL_AFTER_POSITION;
@@ -956,7 +959,7 @@ createTableStatement
          
         KW_CREATE (ext=KW_EXTERNAL)? KW_TABLE ifNotExists? name=tableName
       (  like=KW_LIKE (KW_TABLE likeTabName=tableName |KW_SCHEMA likeName=schemaName KW_TO dbName=Identifier)
-         tableComment?  fileSplit? tablePartition?  tableDistribution?
+         tableComment?  fileSplit? tablePartition?  tableDistribution?  tableFileFormat? tableLocation? 
        | (LPAREN columnNameTypeList RPAREN)?
          tableComment?
          fileSplit?
@@ -1096,6 +1099,7 @@ alterSchemaStatementSuffix
 @after { msgs.pop(); }
     : alterSchemaStatementSuffixRename
     | alterSchemaStatementSuffixAddCol
+    | alterSchemaStatementSuffixDelCol
     | alterSchemaStatementSuffixRenameCol
     | alterSchemaStatementSuffixProperties
     |alterSchemaStatementChangeColPosition
@@ -1117,6 +1121,7 @@ alterTableStatementSuffix
     | alterStatementSuffixArchive
     | alterStatementSuffixUnArchive
     | alterStatementSuffixProperties
+    | alterStatementSuffixDropProperties
     | alterTblPartitionStatement
     | alterStatementSuffixClusterbySortby
     | alterStatementSuffixSkewedby
@@ -1253,7 +1258,12 @@ alterSchemaStatementSuffixAddCol
     -> {$add != null}? ^(TOK_ALTERSCHEMA_ADDCOLS Identifier columnNameTypeList)
     ->                 ^(TOK_ALTERSCHEMA_REPLACECOLS Identifier columnNameTypeList)
     ;
-    
+alterSchemaStatementSuffixDelCol
+@init{ msgs.push("delete Schema column statement"); }
+@after { msgs.pop(); }
+    : Identifier KW_DELETE KW_COLUMN LPAREN columnNameTypeList  RPAREN
+    -> ^(TOK_ALTERSCHEMA_DELCOL  Identifier columnNameTypeList )
+    ;
 alterStatementSuffixFileSplit
 @init { msgs.push("alter file split"); }
 @after { msgs.pop(); }
@@ -1388,6 +1398,14 @@ alterStatementSuffixProperties
     : name=Identifier KW_SET KW_TBLPROPERTIES tableProperties
     -> ^(TOK_ALTERTABLE_PROPERTIES $name tableProperties)
     ;
+    
+alterStatementSuffixDropProperties
+@init { msgs.push("drop properties statemetn"); }
+@after { msgs.pop(); } 
+    :name=Identifier KW_DROP KW_TBLPROPERTIES tableProperties
+    -> ^(TOK_ALTERTABLE_DROP_PROPERTIES $name tableProperties)
+    ;
+    
 alterSchemaStatementSuffixProperties
 @init { msgs.push("alter properties statement"); }
 @after { msgs.pop(); }
@@ -1897,11 +1915,11 @@ fileSplit
 @init { msgs.push("file split specification"); }
 @after { msgs.pop(); }
     : KW_SPLITED KW_BY splitParamList=partitionParamList
-    fileSubSplit?
     splitTemplate?
-    -> ^(TOK_SPLITED_BY $splitParamList
     fileSubSplit?
-    splitTemplate?)
+    -> ^(TOK_SPLITED_BY $splitParamList
+    splitTemplate?
+    fileSubSplit?)
     ;
     
     
@@ -2212,6 +2230,7 @@ tableFileFormat
       KW_STORED KW_AS KW_SEQUENCEFILE  -> TOK_TBLSEQUENCEFILE
       | KW_STORED KW_AS KW_TEXTFILE  -> TOK_TBLTEXTFILE
       | KW_STORED KW_AS KW_RCFILE  -> TOK_TBLRCFILE
+      | KW_STORED KW_AS KW_LUCENEFILE -> TOK_TBLLUCENEFILE
       | KW_STORED KW_AS KW_INPUTFORMAT inFmt=StringLiteral KW_OUTPUTFORMAT outFmt=StringLiteral (KW_INPUTDRIVER inDriver=StringLiteral KW_OUTPUTDRIVER outDriver=StringLiteral)?
       -> ^(TOK_TABLEFILEFORMAT $inFmt $outFmt $inDriver? $outDriver?)
       | KW_STORED KW_BY storageHandler=StringLiteral
@@ -3396,6 +3415,7 @@ KW_FILEFORMAT: 'FILEFORMAT';
 KW_SEQUENCEFILE: 'SEQUENCEFILE';
 KW_TEXTFILE: 'TEXTFILE';
 KW_RCFILE: 'RCFILE';
+KW_LUCENEFILE: 'LUCENEFILE';
 KW_INPUTFORMAT: 'INPUTFORMAT';
 KW_OUTPUTFORMAT: 'OUTPUTFORMAT';
 KW_INPUTDRIVER: 'INPUTDRIVER';
