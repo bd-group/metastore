@@ -804,9 +804,10 @@ public class Hive {
           LOG.warn("---jzw--lucene.prop.name:"+key);
         }
 
+        // 这里的if条件应该有问题，原来的只是一个条件
         if( !params.containsKey(Constants.META_LUCENE_ANALYZE)
-            || !params.containsKey(Constants.META_LUCENE_ANALYZE)
-            || !params.containsKey(Constants.META_LUCENE_ANALYZE)){
+            || !params.containsKey(Constants.META_LUCENE_INDEX)
+            || !params.containsKey(Constants.META_LUCENE_STORE)){
           throw new HiveException("Lucene properties have to be setted.");
         }
       }
