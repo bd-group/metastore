@@ -53,6 +53,8 @@ import org.apache.hadoop.hive.ql.hooks.WriteEntity;
 import org.apache.hadoop.hive.ql.io.IgnoreKeyTextOutputFormat;
 import org.apache.hadoop.hive.ql.io.RCFileInputFormat;
 import org.apache.hadoop.hive.ql.io.RCFileOutputFormat;
+import org.apache.hadoop.hive.ql.io.TestLuceneInputFormat;
+import org.apache.hadoop.hive.ql.io.TestLuceneOutputFormat;
 import org.apache.hadoop.hive.ql.lib.Node;
 import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
@@ -114,6 +116,11 @@ public abstract class BaseSemanticAnalyzer {
   protected static final String RCFILE_OUTPUT = RCFileOutputFormat.class
       .getName();
   protected static final String COLUMNAR_SERDE = ColumnarSerDe.class.getName();
+
+  protected static final String LUCENE_INPUT = TestLuceneInputFormat.class
+      .getName();
+  protected static final String LUCENE_OUTPUT = TestLuceneOutputFormat.class
+      .getName();
 
   class RowFormatParams {
     String fieldDelim = null;
@@ -191,6 +198,11 @@ public abstract class BaseSemanticAnalyzer {
         }
         storageFormat = true;
         break;
+      case HiveParser.TOK_TBLLUCENEFILE:
+        inputFormat = LUCENE_INPUT;
+        outputFormat = LUCENE_OUTPUT;
+        storageFormat = true;
+        break;
       case HiveParser.TOK_TABLEFILEFORMAT:
         inputFormat = unescapeSQLString(child.getChild(0).getText());
         outputFormat = unescapeSQLString(child.getChild(1).getText());
@@ -218,7 +230,10 @@ public abstract class BaseSemanticAnalyzer {
           inputFormat = RCFILE_INPUT;
           outputFormat = RCFILE_OUTPUT;
           shared.serde = COLUMNAR_SERDE;
-        } else {
+        } else  if ("RCFile".equalsIgnoreCase(conf.getVar(HiveConf.ConfVars.HIVEDEFAULTFILEFORMAT))) {
+          inputFormat = LUCENE_INPUT;
+          outputFormat = LUCENE_OUTPUT;
+        }else{
           inputFormat = TEXTFILE_INPUT;
           outputFormat = TEXTFILE_OUTPUT;
         }
@@ -610,14 +625,20 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
     //table partition columns analyze
       zlog.warn("Ast tree:"+ast.toStringTree());
       int partChildNum = ast.getChildCount();
+      zlog.info("----tianlong----partChildNum====="+partChildNum);
       for (int p = 0; p < partChildNum; p++) {//anyalyze partition by
 
         ASTNode p_child = (ASTNode) ast.getChild(p);
         zlog.warn("in part columns-111,tree:"+p_child.toString()
             +"--text:"+p_child.getText()+"--tokenType:"+p_child.getToken().getType());
         switch(p_child.getToken().getType()){
+        // 第一级分区走这个case，处理第一个child，然后break
         case  HiveParser.TOK_TABLEPARTCOLS://part function:hash/list/range/interval
+          zlog.info("-----tianlong-----colList"+colList.toString());
+          // getPartitionType( p_child,colList, pd); 这个函数已经得到了第一个分区的信息并且保存在colList中
           getPartitionType( p_child,colList, pd);
+          zlog.info("-----tianlong-----colList"+colList.toString());
+          zlog.info("-----tianlong-----"+p_child.toString());
           break;
         case  HiveParser.TOK_SPLIT_EXPER:
         case  HiveParser.TOK_PARTITION_EXPER://一级分区定义，子分区定义也在此分支中处理
@@ -626,15 +647,19 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
           pd.setPartitions(parts);
 
           break;
+        // 第二级分区走这个case，处理第二个child，为什么要递归调用？？？？？？
         case  HiveParser.TOK_SUBSPLITED_BY:
         case  HiveParser.TOK_SUBPARTITIONED_BY://直接跟在一级分区定义后，本子分区定义会直接传递给一级分区的所有分区
+          zlog.info("-----tianlong----case  HiveParser.TOK_SUBPARTITIONED_BY");
           global_sub_pd = new PartitionDefinition();
           global_sub_pd.setTableName(pd.getTableName());
           global_sub_pd.getPi().setP_level(2);//设为2级分区
           List<FieldSchema> subPartCol = analyzePartitionClause( p_child,  global_sub_pd);//递归调用，获取子分区定义
 //          List<SubPartitionFieldSchema> subPartFieldList =
 //              PartitionFactory.toSubPartitionFieldSchemaList(subPartCol);
+          zlog.info("-----tianlong-----colList"+colList.toString());
           colList.addAll(subPartCol);
+          zlog.info("-----tianlong-----colList"+colList.toString());
           PartitionFactory.createSubPartition(colList,global_sub_pd,true,null);
 //          assert(colList.size() == 1);
 
@@ -726,6 +751,7 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
 
     for (int i = 1; i < paraNum; i++) {//anyalyze partition function params
       ASTNode func_para = (ASTNode) func_child.getChild(i);
+      // 第0个为function name，第1个为TOK_TABLE_OR_COL，否则抛出异常
       if(i==1 && func_para.getToken().getType() != HiveParser.TOK_TABLE_OR_COL){
         throw new SemanticException("Partition/Filesplit first parameter must be a columne name,please check if column name quotaed by ' or \".");
       }
@@ -757,6 +783,7 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
     String last_part_min_value = PartitionConstants.MINVALUE;
     String last_part_max_value = PartitionConstants.MAXVALUE;
 
+    zlog.info("-----tianlong-----getPartitionDef.ast=="+p_child);
     zlog.warn("getPartitionDef,tree:"+p_child.toStringTree()+"--text:"+p_child.getText()
         +"--getChildCount:"+p_child.getChildCount());
     int ptempNum = p_child.getChildCount();

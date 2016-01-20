@@ -41,7 +41,8 @@ public class AlterSchemaDesc extends DDLDesc implements Serializable {
    *
    */
   public static enum AlterSchemaTypes {
-    RENAME, ADDCOLS, REPLACECOLS, ADDPROPS, RENAMECOLUMN
+    RENAME, ADDCOLS, REPLACECOLS, ADDPROPS, RENAMECOLUMN,
+    DELCOL
   };
 
   public static enum ProtectModeType {
@@ -159,6 +160,8 @@ public class AlterSchemaDesc extends DDLDesc implements Serializable {
       return "rename";
     case ADDCOLS:
       return "add columns";
+    case DELCOL:
+      return "delete column";
     case REPLACECOLS:
       return "replace columns";
     case ADDPROPS:

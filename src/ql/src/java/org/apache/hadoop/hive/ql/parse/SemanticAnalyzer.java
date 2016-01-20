@@ -9122,6 +9122,8 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
     for (int num = 1; num < numCh; num++) {
       ASTNode child = (ASTNode) ast.getChild(num);
       if (storageFormat.fillStorageFormat(child, shared)) {
+//        LOG.info("-----tianlong-----storageFormat.fillStorageFor"
+//            + "mat(child, shared)==true"+storageFormat.inputFormat+storageFormat.outputFormat+storageFormat.storageHandler);
         continue;
       }
       switch (child.getToken().getType()) {
@@ -9148,6 +9150,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
         }
         break;
       case HiveParser.TOK_LIKESCHEMA:
+        //LOG.info("-----tianlong-----create table like schmea");
         if (child.getChildCount() > 0) {
           likeSchemaName = getUnescapedName((ASTNode)child.getChild(0).getChild(0));
           toDBNameString = getUnescapedName((ASTNode)child.getChild(1));
@@ -9196,6 +9199,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
 //        partCols = getColumns((ASTNode) child.getChild(0), false);
       case HiveParser.TOK_PARTITIONED_BY:
         pd.setTableName(tableName);
+        //LOG.info("-----tianlong------case HiveParser.TOK_PARTITIONED_BY:");
         partCols = analyzePartitionClause((ASTNode) child, pd);
 
         List<org.apache.hadoop.hive.metastore.api.Partition> ps = pd.toPartitionList();
@@ -9214,7 +9218,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
       case HiveParser.TOK_SPLITED_BY:
         pd.setTableName(tableName);
         splitCols = analyzePartitionClause((ASTNode) child, pd);
-
+        //LOG.info("------tianlong------case HiveParser.TOK_SPLITED_BY");
         List<org.apache.hadoop.hive.metastore.api.Partition> fileSplit_fakeParts
           = pd.toPartitionList();
         int h=1;
@@ -9278,6 +9282,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
     }
 
     storageFormat.fillDefaultStorageFormat(shared);
+    //LOG.info("-----tianlong-----after fillDefaultStorageFormat"+storageFormat.inputFormat+storageFormat.outputFormat+storageFormat.storageHandler);
 
     if ((command_type == CTAS) && (storageFormat.storageHandler != null)) {
       throw new SemanticException(ErrorMsg.CREATE_NON_NATIVE_AS.getMsg());
@@ -9345,7 +9350,8 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
       rootTasks.add(TaskFactory.get(new DDLWork(getInputs(), getOutputs(),
           crtTblLikeDesc), conf));
       break;
-    case CTLS: // create table like <tbl_name>
+    case CTLS: // create table like <schema_name>
+      //LOG.info("-----tianlong-----create table like schema");
       CreateTableLikeSchemaDesc crtTblLikeSchemaDesc = new CreateTableLikeSchemaDesc(toDBNameString,tableName, isExt,partCols,
           storageFormat.inputFormat, storageFormat.outputFormat, location,
           shared.serde, shared.serdeProps, ifNotExists, likeSchemaName);

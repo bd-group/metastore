@@ -292,6 +292,9 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
     case HiveParser.TOK_ALTERTABLE_PROPERTIES:
       analyzeAlterTableProps(ast, false);
       break;
+    case HiveParser.TOK_ALTERTABLE_DROP_PROPERTIES:
+      analyzeAlterTableDropProps(ast, false);
+      break;
     case HiveParser.TOK_ALTERTABLE_CLUSTER_SORT:
       analyzeAlterTableClusterSort(ast);
       break;
@@ -568,6 +571,9 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
       break;
     case HiveParser.TOK_ALTERSCHEMA_ADDCOLS:
       analyzeAlterSchemaModifyCols(ast, AlterSchemaTypes.ADDCOLS);
+      break;
+    case HiveParser.TOK_ALTERSCHEMA_DELCOL:
+      analyzeAlterSchemaModifyCols(ast, AlterSchemaTypes.DELCOL);
       break;
     case HiveParser.TOK_ALTERSCHEMA_REPLACECOLS:
       analyzeAlterSchemaModifyCols(ast, AlterSchemaTypes.REPLACECOLS);
@@ -2282,6 +2288,7 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
       case RENAMEPARTITION:
       case ADDPROPS:
       case RENAME:
+      case DROPPROPS:
       case ALTERFILESPLIT:
       case ADDNODEGROUP:
       case DELETENODEGROUP:
@@ -2311,6 +2318,7 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
       case ADDPROPS:
       case RENAME:
       case ADDCOLS:
+      case DELCOL:
       case REPLACECOLS:
       case RENAMECOLUMN:
         // allow this form
@@ -2336,6 +2344,23 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
         .getChild(0));
     AlterTableDesc alterTblDesc =
         new AlterTableDesc(AlterTableTypes.ADDPROPS, expectView);
+    alterTblDesc.setProps(mapProp);
+    alterTblDesc.setOldName(tableName);
+
+    addInputsOutputsAlterTable(tableName, null, alterTblDesc);
+
+    rootTasks.add(TaskFactory.get(new DDLWork(getInputs(), getOutputs(),
+        alterTblDesc), conf));
+  }
+
+  private void analyzeAlterTableDropProps(ASTNode ast, boolean expectView)
+      throws SemanticException{
+
+    String tableName = getUnescapedName((ASTNode) ast.getChild(0));
+    HashMap<String, String> mapProp = getProps((ASTNode) (ast.getChild(1))
+        .getChild(0));
+    AlterTableDesc alterTblDesc =
+        new AlterTableDesc(AlterTableTypes.DROPPROPS, expectView);
     alterTblDesc.setProps(mapProp);
     alterTblDesc.setOldName(tableName);
 
@@ -2425,6 +2450,10 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
       inputFormat = RCFILE_INPUT;
       outputFormat = RCFILE_OUTPUT;
       serde = COLUMNAR_SERDE;
+      break;
+    case HiveParser.TOK_TBLLUCENEFILE:
+      inputFormat = LUCENE_INPUT;
+      outputFormat = LUCENE_OUTPUT;
       break;
     case HiveParser.TOK_FILEFORMAT_GENERIC:
       handleGenericFileFormat(child);
