@@ -9242,7 +9242,9 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
         location = EximUtil.relativeToAbsolutePath(conf, location);
         break;
       case HiveParser.TOK_TABLEPROPERTIES:
+        //LOG.info("------zhuqihan------case TOK_TABLEPROPERTIES");
         tblProps = DDLSemanticAnalyzer.getProps((ASTNode) child.getChild(0));
+       // LOG.info("-----zhuqihan-----tblProps = " + tblProps.toString() + tblProps.get(0));
         break;
       case HiveParser.TOK_TABLESERIALIZER:
         child = (ASTNode) child.getChild(0);
@@ -9351,10 +9353,10 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
           crtTblLikeDesc), conf));
       break;
     case CTLS: // create table like <schema_name>
-      //LOG.info("-----tianlong-----create table like schema");
+      //LOG.info("-----zhuqihan-----create table like schema");
       CreateTableLikeSchemaDesc crtTblLikeSchemaDesc = new CreateTableLikeSchemaDesc(toDBNameString,tableName, isExt,partCols,
           storageFormat.inputFormat, storageFormat.outputFormat, location,
-          shared.serde, shared.serdeProps, ifNotExists, likeSchemaName);
+          shared.serde, shared.serdeProps, ifNotExists, likeSchemaName,tblProps);
 
       if(!splitCols.isEmpty()){
         crtTblLikeSchemaDesc.setFileSplitCols(splitCols);

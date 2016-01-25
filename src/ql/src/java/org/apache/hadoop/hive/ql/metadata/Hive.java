@@ -570,6 +570,7 @@ public class Hive {
       }
       tbl.checkValidity();
       if (tbl.getParameters() != null) {
+        LOG.info("---zqh--tbl.getParameters() != null"+tbl.getParameters().toString());
         tbl.getParameters().remove(hive_metastoreConstants.DDL_TIME);
       }
       org.apache.hadoop.hive.metastore.api.Table tTbl = tbl.getTTable();

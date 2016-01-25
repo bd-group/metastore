@@ -716,7 +716,7 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
 
   private int crtTblLikeSchemaDesc(Hive db, CreateTableLikeSchemaDesc crtTblLikeSchemaDesc) throws HiveException {
     GlobalSchema schema = db.getSchema(crtTblLikeSchemaDesc.getLikeTableName(),false);
-    //LOG.info("-----tianlong----crtTblLikeSchemaDesc");
+    LOG.info("-----zhuqihan-----crtTblLikeSchemaDesc");
     Table tbl;
     if (schema.getTableType() == TableType.VIRTUAL_VIEW) {
       String targetTableName = crtTblLikeSchemaDesc.getTableName();
@@ -780,6 +780,8 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
         tbl.setPartCols(crtTblLikeSchemaDesc.getPartCols());
       }
 
+
+
       if (crtTblLikeSchemaDesc.getLocation() != null) {
         //LOG.info("-----tianlong-----"+crtTblLikeSchemaDesc.getLocation());
         tbl.setDataLocation(new Path(crtTblLikeSchemaDesc.getLocation()).toUri());
@@ -807,6 +809,13 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
         params.clear();
       }
 
+      if(crtTblLikeSchemaDesc.getTblProps() != null
+          && !crtTblLikeSchemaDesc.getTblProps().isEmpty()) {
+        for(String proname: crtTblLikeSchemaDesc.getTblProps().keySet()){
+          String provalue = crtTblLikeSchemaDesc.getTblProps().get(proname);
+          tbl.getParameters().put(proname,provalue);
+        }
+      }
       // 根据scheme建表的时候，在table properties中保存@name--->id的对应关系,同时保存一个计数器#idCounter，id从1开始累加
       int id = 0;
       for(FieldSchema col : schema.getCols())

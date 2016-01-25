@@ -959,7 +959,7 @@ createTableStatement
          
         KW_CREATE (ext=KW_EXTERNAL)? KW_TABLE ifNotExists? name=tableName
       (  like=KW_LIKE (KW_TABLE likeTabName=tableName |KW_SCHEMA likeName=schemaName KW_TO dbName=Identifier)
-         tableComment?  fileSplit? tablePartition?  tableDistribution?  tableFileFormat? tableLocation? 
+         tableComment?  fileSplit? tablePartition?  tableDistribution?  tableFileFormat? tableLocation? tablePropertiesPrefixed?
        | (LPAREN columnNameTypeList RPAREN)?
          tableComment?
          fileSplit?
