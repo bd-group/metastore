@@ -101,7 +101,8 @@ public class DiskManager {
     public final Map<String, MigrateEntry> rrmap = new ConcurrentHashMap<String, MigrateEntry>();
 
     public final ConcurrentLinkedQueue<ReplicateRequest> rrq = new ConcurrentLinkedQueue<ReplicateRequest>();
-
+ // 第一个为fid，第二个为上一次进行增量复制的时间
+    public final Map<Long,Long> onrepFile = new ConcurrentHashMap<Long, Long>();
     private HashMap<String, Long> inactiveNodes = new HashMap<String, Long>();
 
     // TODO: fix me: change it to 30 min
@@ -146,6 +147,10 @@ public class DiskManager {
 
     public void submitReplicateRequest(ReplicateRequest rr) {
       rrq.add(rr);
+    }
+
+    public void addToOnRepFile(long fid, long time) {
+      onrepFile.put(fid, time);
     }
 
     public static class FLEntry {
@@ -835,7 +840,7 @@ public class DiskManager {
       public final Map<String, FLEntry> context = new ConcurrentHashMap<String, FLEntry>();
 
       public enum FLS_Policy {
-        NONE, FAIR_NODES, ORDERED_ALLOC_DEVS,
+        NONE, FAIR_NODES, ORDERED_ALLOC_DEVS,LOONG_STORE,
       }
 
       public void initWatchedTables(RawStore rs, String[] tables, FLS_Policy policy) throws MetaException {
@@ -1038,7 +1043,8 @@ public class DiskManager {
       public FLS_Policy FLSelector_switch(String table) {
         FLEntry e = context.get(table);
         if (e == null) {
-          return FLS_Policy.NONE;
+          //return FLS_Policy.NONE;
+          return FLS_Policy.LOONG_STORE;                         //ZTT 默认使用龙存
         } else {
           return e.policy;
         }
@@ -1384,6 +1390,10 @@ public class DiskManager {
         isOffline = false;
       }
 
+      public int getTag() {
+        return prop & (MetaStoreConst.MDeviceProp.__QUOTA_MASK__ << 24);
+      }
+
       public int getType() {
         return prop & MetaStoreConst.MDeviceProp.__TYPE_MASK__;
       }
@@ -1416,6 +1426,10 @@ public class DiskManager {
         default:
           return "X" + (prop & MetaStoreConst.MDeviceProp.__TYPE_MASK__);
         }
+      }
+
+      public static int getTag(int prop) {
+        return prop & (MetaStoreConst.MDeviceProp.__QUOTA_MASK__ << 24);
       }
 
       public static int getType(int prop) {
@@ -1877,6 +1891,9 @@ public class DiskManager {
       public long suspectDelTimeout = 30 * 24 * 3600 * 1000; // 30 days
       public long inactiveNodeTimeout = 3600 * 1000; // 1 hour
 
+      public long incrementRepTaskTimeout = 1 * 5 * 1000;           //ztt 增量复制总任务的时间间隔
+      public long incrementRepTimeout = 1 * 5 * 1000;                   //ztt 单个文件增量复制的时间间隔
+
       private long last_repTs = System.currentTimeMillis();
       private long last_rerepTs = System.currentTimeMillis();
       private long last_unspcTs = System.currentTimeMillis();
@@ -1885,6 +1902,7 @@ public class DiskManager {
       private long last_limitTs = System.currentTimeMillis();
       private long last_limitLeakTs = System.currentTimeMillis();
       private long last_cleanDSFStatTs = System.currentTimeMillis();
+      private long last_incrementRepTs = System.currentTimeMillis();
 
       private long last_genRpt = System.currentTimeMillis();
 
@@ -1905,6 +1923,8 @@ public class DiskManager {
         suspectDelTimeout = hiveConf.getLongVar(HiveConf.ConfVars.DM_CHECK_SUSPECT_DEL_TIMEOUT);
         inactiveNodeTimeout = hiveConf.getLongVar(HiveConf.ConfVars.DM_CHECK_INACTIVE_NODE_TIMEOUT);
         cleanDSFStatTimeout = hiveConf.getLongVar(HiveConf.ConfVars.DM_DSFSTAT_TIMEOUT);
+        incrementRepTaskTimeout = hiveConf.getLongVar(HiveConf.ConfVars.DM_INCREATEMENT_REP_TASK_TIMEOUT);
+        incrementRepTimeout = hiveConf.getLongVar(HiveConf.ConfVars.DM_INCREATEMENT_REP_TIMEOUT);
         ff_range = hiveConf.getLongVar(HiveConf.ConfVars.DM_FF_RANGE);
         DiskManager.identify_shared_device = hiveConf.getBoolVar(HiveConf.ConfVars.DM_IDENTIFY_SHARED_DEV);
 
@@ -2027,6 +2047,340 @@ public class DiskManager {
               // ignore any error,
               // because if ni == null, we don't known whether this loc is valid.
               __do_delete(inTypeOrder.get(idx), f.getLocationsSize());
+            }
+          }
+        }
+      }
+
+      //ztt 寻找副本位置
+      public void seekToLocation(SFile file) {
+        FileLocatingPolicy flp, flp_default;
+        Set<String> excludes = new TreeSet<String>();
+        Set<String> excl_dev = new TreeSet<String>();
+        Set<String> spec_dev = new TreeSet<String>();
+        Set<String> spec_node = new TreeSet<String>();
+        int master = 0;
+        boolean master_marked = false;
+
+        // BUG-XXX: if r.file.getStore_status() is REPLICATED, do NOT replicate
+        // otherwise, closeRepLimit leaks
+        if (file.getStore_status() == MetaStoreConst.MFileStoreStatus.REPLICATED ||
+            file.getLocationsSize() >= file.getRep_nr()) {
+          return;
+        }
+
+        // exclude old file locations
+        for (int i = 0; i < file.getLocationsSize(); i++) {
+          try {
+            if (!isSharedDevice(file.getLocations().get(i).getDevid())) {
+              excludes.add(file.getLocations().get(i).getNode_name());
+            }
+          } catch (MetaException e1) {
+            LOG.error(e1, e1);
+            excludes.add(file.getLocations().get(i).getNode_name());
+          } catch (NoSuchObjectException e1) {
+            LOG.error(e1, e1);
+            excludes.add(file.getLocations().get(i).getNode_name());
+          } catch (javax.jdo.JDOException e1) {
+            LOG.error(e1, e1);
+            excludes.add(file.getLocations().get(i).getNode_name());
+          }
+          excl_dev.add(file.getLocations().get(i).getDevid());
+
+          // mark master copy id
+          if (!master_marked && file.getLocations().get(master).getVisit_status() != MetaStoreConst.MFileLocationVisitStatus.ONLINE &&file.getLocations().get(i).getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE) {
+            master = i;
+            master_marked = true;
+            // BUG: if the master replica is a SHARED/BACKUP device, get any node
+            if (file.getLocations().get(i).getNode_name().equals("")) {
+              try {
+                file.getLocations().get(i).setNode_name(getAnyNode(file.getLocations().get(i).getDevid()));
+              } catch (MetaException e) {
+                LOG.error(e, e);
+                master_marked = false;
+              }
+            }
+          }
+          // remove if this backup device has already used
+          if (spec_dev.remove(file.getLocations().get(i).getDevid())) {
+            // this backup device has already been used, do not user any other backup device
+            spec_dev.clear();
+          }
+          // FIXME: remove if the node is not in spec_node
+          if (!spec_node.contains(file.getLocations().get(i).getNode_name())) {
+            // this file's node is not in any backup devices' active node set, so, do NOT use backup device
+            spec_dev.clear();
+          }
+        }
+
+        flp = flp_default = new FileLocatingPolicy(excludes, excl_dev,
+            FileLocatingPolicy.EXCLUDE_NODES_AND_RANDOM,
+            FileLocatingPolicy.EXCLUDE_DEVS_AND_RANDOM, true);
+        flp.length_hint = file.getLength();
+        flp_default.length_hint = file.getLength();
+
+        for (int i = file.getLocationsSize(); i < file.getRep_nr(); i++, flp = flp_default) {
+          if (i == file.getLocationsSize()) {
+            // TODO: Use FLSelector here to decide whether we need replicate it to CACHE device
+            String table = file.getDbName() + "." + file.getTableName();
+            switch (flselector.FLSelector_switch(table)) {
+            default:
+            case NONE:
+              break;
+            case FAIR_NODES:
+            case ORDERED_ALLOC_DEVS:
+              flp.dev_mode = FileLocatingPolicy.ORDERED_ALLOC;
+              break;
+            }
+            flp.accept_types = flselector.getDevTypeListAfterIncludeHint(table,
+                MetaStoreConst.MDeviceProp.__AUTOSELECT_R2__);
+          }
+          try {
+            String node_name = findBestNode(flp);
+            if (node_name == null) {
+              LOG.warn("Could not find any best node to replicate file " + file.getFid());
+              continue;
+            }
+            // if we are selecting backup device, try to use local shortcut
+            if (flp.origNode != null && flp.nodes.contains(flp.origNode)) {
+              node_name = flp.origNode;
+            }
+            excludes.add(node_name);
+            String devid = findBestDevice(node_name, flp);
+            if (devid == null) {
+              LOG.warn("Could not find any best device on node " + node_name + " to replicate file " + file.getFid());
+              continue;
+            }
+            excl_dev.add(devid);
+            // if we are selecting a shared device, try to use local shortcut
+            try {
+              if (isSharedDevice(devid) && isSDOnNode(devid, file.getLocations().get(0).getNode_name())) {
+                node_name = file.getLocations().get(0).getNode_name();
+              }
+            } catch (NoSuchObjectException e1) {
+              LOG.error(e1, e1);
+            } catch (Exception e1) {
+              LOG.error(e1, e1);
+            }
+
+            String location;
+            Random rand = new Random();
+            SFileLocation nloc;
+
+            do {
+              location = "/data/";
+              if (file.getDbName() != null && file.getTableName() != null) {
+                synchronized (rs) {
+                  Table t = rs.getTable(file.getDbName(), file.getTableName());
+                  location += t.getDbName() + "/" + t.getTableName() + "/"
+                      + rand.nextInt(Integer.MAX_VALUE);
+                }
+              } else {
+                location += "UNNAMED-DB/UNNAMED-TABLE/" + rand.nextInt(Integer.MAX_VALUE);
+              }
+              nloc = new SFileLocation(node_name, file.getFid(), devid, location,
+                  i, System.currentTimeMillis(),
+                  MetaStoreConst.MFileLocationVisitStatus.ONREP, "SFL_REP_DEFAULT");
+              synchronized (rs) {
+                // FIXME: check the file status now, we might conflict with REOPEN
+                if (rs.createFileLocation(nloc)) {
+                  break;
+                }
+              }
+            } while (true);
+            file.addToLocations(nloc);
+
+            try {
+              NodeInfo ni = ndmap.get(file.getLocations().get(master).getNode_name());
+              String  toMp;
+              if (ni == null) {
+                if (nloc != null) {
+                  rs.delSFileLocation(nloc.getDevid(), nloc.getLocation());
+                }
+                throw new IOException("Can not find Node '" + file.getLocations().get(master).getNode_name() +
+                    "' in nodemap now, is it offline? fid(" + file.getFid() + ")");
+              }
+
+              toMp = ni.getMP(nloc.getDevid());
+              if (toMp == null) {
+                throw new IOException("Can not find Device '" + nloc.getDevid() +
+                    "' in NodeInfo '" + nloc.getNode_name() + "', fid(" + file.getFid() + ")");
+              }
+
+            } catch (JSONException e) {
+              LOG.error(e, e);
+              continue;
+            }
+            synchronized (ndmap) {
+              NodeInfo ni = ndmap.get(node_name);
+              if (ni == null) {
+                LOG.error("Can not find Node '" + node_name + "' in nodemap now, is it offline?");
+              }
+            }
+          } catch (IOException e) {
+            LOG.error(e, e);
+            break;
+          } catch (MetaException e) {
+            LOG.error(e, e);
+          } catch (InvalidObjectException e) {
+            LOG.error(e, e);
+          }
+        }
+      }
+
+      //ztt 本地测试专用
+      public void seekToLocation1(SFile file) {
+        // BUG-XXX: if r.file.getStore_status() is REPLICATED, do NOT replicate
+        // otherwise, closeRepLimit leaks
+        if (file.getStore_status() == MetaStoreConst.MFileStoreStatus.REPLICATED ||
+            file.getLocationsSize() >= file.getRep_nr()) {
+          return;
+        }
+
+        for (int i = file.getLocationsSize(); i < file.getRep_nr(); i++) {
+          try {
+            String node_name = "ztt";
+            String devid = "Kingston_DataTraveler_2";
+
+            String location;
+            Random rand = new Random();
+            SFileLocation nloc;
+
+            do {
+              location = "/backup/";
+              location += "UNNAMED-DB/UNNAMED-TABLE/" + rand.nextInt(Integer.MAX_VALUE);
+
+              nloc = new SFileLocation(node_name, file.getFid(), devid, location,
+                  i, System.currentTimeMillis(),
+                  MetaStoreConst.MFileLocationVisitStatus.ONREP, "SFL_REP_DEFAULT");
+              synchronized (rs) {
+                // FIXME: check the file status now, we might conflict with REOPEN
+                if (rs.createFileLocation(nloc)) {
+                  break;
+                }
+              }
+            } while (true);
+            file.addToLocations(nloc);
+
+            try {
+              NodeInfo ni;
+              String  toMp;
+
+              ni = ndmap.get(nloc.getNode_name());
+              if (ni == null) {
+                if (nloc != null) {
+                  rs.delSFileLocation(nloc.getDevid(), nloc.getLocation());
+                }
+                throw new IOException("Can not find Node '" + nloc.getNode_name() + "' in nodemap now, is it offline? fid("
+                    + file.getFid() + ")");
+              }
+              toMp = ni.getMP(nloc.getDevid());
+              if (toMp == null) {
+                throw new IOException("Can not find Device '" + nloc.getDevid() +
+                    "' in NodeInfo '" + nloc.getNode_name() + "', fid(" + file.getFid() + ")");
+              }
+
+            } catch (JSONException e) {
+              LOG.error(e, e);
+              continue;
+            }
+            synchronized (ndmap) {
+              NodeInfo ni = ndmap.get(node_name);
+              if (ni == null) {
+                LOG.error("Can not find Node '" + node_name + "' in nodemap now, is it offline?");
+              }
+            }
+          } catch (IOException e) {
+            LOG.error(e, e);
+            break;
+          } catch (MetaException e) {
+            LOG.error(e, e);
+          } catch (InvalidObjectException e) {
+            LOG.error(e, e);
+          }
+        }
+      }
+
+      public void addToToRep(SFile file, List<SFileLocation> onrepFLs) throws MetaException, IOException {
+        SFileLocation valid_fl = file.getLocations().get(0);
+        if (!onrepFLs.isEmpty() && valid_fl != null) {
+          //ztt: 如果主本位置不是online,遍历文件位置是否有online,没有则等待
+          if (valid_fl.getVisit_status() != MetaStoreConst.MFileLocationVisitStatus.ONLINE) {
+            for(SFileLocation fl : file.getLocations()) {
+              if(fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE){
+                valid_fl = fl;
+                break;
+              }
+            }
+            if(valid_fl.getVisit_status() != MetaStoreConst.MFileLocationVisitStatus.ONLINE) {
+              return;
+            }
+          }
+          for (SFileLocation nloc : onrepFLs) {
+            if(nloc.getVisit_status() != MetaStoreConst.MFileLocationVisitStatus.ONREP){
+              continue;
+            }
+            JSONObject jo = new JSONObject();
+            try {
+              JSONObject j = new JSONObject();
+              NodeInfo ni = ndmap.get(valid_fl.getNode_name());
+              String fromMp, toMp;
+
+              if (ni == null) {
+                throw new IOException("Can not find Node '"
+                    + valid_fl.getNode_name() +
+                    "' in nodemap now, is it offline? fid(" + file.getFid()
+                    + ")");
+              }
+              fromMp = ni.getMP(valid_fl.getDevid());
+              if (fromMp == null) {
+                throw new IOException("Can not find Device '" + valid_fl.getDevid() +
+                    "' in NodeInfo '" + valid_fl.getNode_name() + "', fid("
+                    + file.getFid()
+                    + ")");
+              }
+              j.put("node_name", valid_fl.getNode_name());
+              j.put("devid", valid_fl.getDevid());
+              j.put("mp", fromMp);
+              j.put("location", valid_fl.getLocation());
+              jo.put("from", j);
+
+              j = new JSONObject();
+              ni = ndmap.get(nloc.getNode_name());
+              if (ni == null) {
+                if (nloc != null) {
+                  trs.delSFileLocation(nloc.getDevid(), nloc.getLocation());
+                }
+                throw new IOException("Can not find Node '" + nloc.getNode_name()
+                    + "' in nodemap now, is it offline? fid("
+                    + file.getFid() + ")");
+              }
+              toMp = ni.getMP(nloc.getDevid());
+              if (toMp == null) {
+                throw new IOException("Can not find Device '" + nloc.getDevid() +
+                    "' in NodeInfo '" + nloc.getNode_name() + "', fid("
+                    + file.getFid() + ")");
+              }
+              j.put("node_name", nloc.getNode_name());
+              j.put("devid", nloc.getDevid());
+              j.put("mp", toMp);
+              j.put("location", nloc.getLocation());
+              jo.put("to", j);
+            } catch (JSONException e) {
+              LOG.error(e, e);
+              continue;
+            }
+            synchronized (ndmap) {
+              NodeInfo ni = ndmap.get(nloc.getNode_name());
+              if (ni == null) {
+                LOG.error("Can not find Node '" + nloc.getNode_name()
+                    + "' in nodemap now, is it offline?");
+              } else {
+                synchronized (ni.toRep) {
+                  ni.toRep.add(jo);
+                  LOG.info("ADD to Node " + nloc.getNode_name() + "'s toRep "+ jo);
+                }
+              }
             }
           }
         }
@@ -2657,6 +3011,52 @@ public class DiskManager {
             last_limitLeakTs = System.currentTimeMillis();
           }
 
+          // 判断正在处于创建中的或者是刚结束的文件的增量复制时间有没有达到设定时间，进行增量复制
+          if (last_incrementRepTs + incrementRepTaskTimeout < System.currentTimeMillis()) {
+            if (!onrepFile.isEmpty()) {
+              List<Long> toDel = new ArrayList<Long>();
+              List<SFileLocation> onrepFLs = new ArrayList<SFileLocation>();
+              for (Map.Entry<Long, Long> en : onrepFile.entrySet()) {
+                SFile file = rs.getSFile(en.getKey());
+                if (file.getStore_status() == MetaStoreConst.MFileStoreStatus.REPLICATED) {
+                  toDel.add(en.getKey());
+                }
+                if (file.getStore_status() == MetaStoreConst.MFileStoreStatus.INCREATE ||
+                    file.getStore_status() == MetaStoreConst.MFileStoreStatus.CLOSED) {
+                  if (en.getValue() + incrementRepTimeout < System.currentTimeMillis()) {
+                    onrepFLs.clear();
+                    if (file.getLocationsSize() > 0) {
+                      if (file.getLocationsSize() < file.getRep_nr()) {
+                        seekToLocation1(file);
+                      }
+                      for (SFileLocation fl : file.getLocations()) {
+                        if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONREP) {
+                          onrepFLs.add(fl);
+                        }
+                      }
+                      if (!onrepFLs.isEmpty()) {
+                        addToToRep(file, onrepFLs);
+                      }
+                      //en.setValue(System.currentTimeMillis());
+                      onrepFile.put(en.getKey(), System.currentTimeMillis());
+
+                      if (file.getStore_status() == MetaStoreConst.MFileStoreStatus.CLOSED ||
+                          file.getStore_status() == MetaStoreConst.MFileStoreStatus.REPLICATED) {
+                        toDel.add(en.getKey());
+                      }
+                    }
+                  }
+                }
+              }
+              if (!toDel.isEmpty()) {
+                for (Long fid : toDel) {
+                  onrepFile.remove(fid);
+                }
+              }
+            }
+            last_incrementRepTs = System.currentTimeMillis();
+          }
+
           // check any under/over/linger files
           if (last_repTs + repDelCheck < System.currentTimeMillis()) {
             // get the file list
@@ -2686,9 +3086,17 @@ public class DiskManager {
             }
             LOG.info("OK, get under " + under.size() + ", over " + over.size() + ", linger " + linger.size());
             // handle under replicated files
-            for (SFile f : under) {
+            for (SFile file : under) {
               // check whether we should issue a re-replicate command
+              SFile f = rs.getSFile(file.getFid());
+              if (f.getStore_status() == MetaStoreConst.MFileStoreStatus.INCREATE) {
+                if(!onrepFile.containsKey(f.getFid())) {
+                  onrepFile.put(f.getFid(), System.currentTimeMillis());
+                }
+              }
               int nr = 0;
+              int onrepnr = 0;
+              List<SFileLocation> onrepFLs = new ArrayList<SFileLocation>();
 
               LOG.info("check under replicated files for fid " + f.getFid());
               for (SFileLocation fl : f.getLocations()) {
@@ -2697,9 +3105,16 @@ public class DiskManager {
                     fl.getUpdate_time() + repTimeout > System.currentTimeMillis())) {
                   nr++;
                 }
+                if(fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONREP) {
+                  onrepnr ++;
+                  onrepFLs.add(fl);
+                }
               }
-              if (nr < f.getRep_nr()) {
-                munder.put(f, f.getRep_nr() - nr);
+              if (nr + onrepnr< f.getRep_nr()) {
+                munder.put(f, f.getRep_nr() - nr - onrepnr);
+              }
+              if(onrepnr > 0){
+                addToToRep(f, onrepFLs);
               }
             }
 
@@ -2708,14 +3123,29 @@ public class DiskManager {
             }
 
             // handle over replicated files
-            for (SFile f : over) {
+            for (SFile file : over) {
               // check whether we should issue a del command
+              SFile f = rs.getSFile(file.getFid());
               int nr = 0;
+              int onrepnr = 0;
+              List<SFileLocation> sfls = new ArrayList<SFileLocation>();
 
               LOG.info("check over replicated files for fid " + f.getFid());
               for (SFileLocation fl : f.getLocations()) {
                 if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE) {
                   nr++;
+                }
+                if(fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONREP) {
+                  onrepnr ++;
+                  sfls.add(fl);
+                }
+              }
+              if(nr > 0 && onrepnr > 0 && nr +onrepnr >f.getRep_nr()) {
+                while(nr +onrepnr >f.getRep_nr() && onrepnr > 0) {
+                  SFileLocation loc = sfls.get(0);
+                  sfls.remove(0);
+                  __do_delete(loc, f.getLocationsSize());
+                  onrepnr --;
                 }
               }
               if (nr > f.getRep_nr()) {
@@ -2743,8 +3173,9 @@ public class DiskManager {
             // handle lingering files
             Set<SFileLocation> s = new TreeSet<SFileLocation>();
             Set<SFile> sd = new TreeSet<SFile>();
-            for (SFile f : linger) {
-              LOG.info("check lingering files for fid " + f.getFid());
+            for (SFile file : linger) {
+              LOG.info("check lingering files for fid " + file.getFid());
+              SFile f = rs.getSFile(file.getFid());
               if (f.getStore_status() == MetaStoreConst.MFileStoreStatus.RM_PHYSICAL) {
                 sd.add(f);
                 continue;
@@ -2783,6 +3214,12 @@ public class DiskManager {
               }
 
               for (SFileLocation fl : f.getLocations()) {
+                if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONREP) {
+                  if (do_clean && f.getStore_status() != MetaStoreConst.MFileStoreStatus.CLOSED &&
+                      f.getStore_status() != MetaStoreConst.MFileStoreStatus.INCREATE) {
+                    s.add(fl);
+                  }
+                }
                 if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.OFFLINE) {
                   // if this OFFLINE sfl exist too long or we do exceed the ng'size limit
                   if (do_clean && f.getStore_status() == MetaStoreConst.MFileStoreStatus.REPLICATED) {
@@ -4580,6 +5017,53 @@ public class DiskManager {
       }
     }
 
+  //ztt 若使用龙存,则不用原来的策略寻找设备,否则使用原来的策略
+    public String findBestLoongDevice(String node, FileLocatingPolicy flp, String db_name, String table_name) throws IOException {
+      if (safeMode) {
+        throw new IOException("Disk Manager is in Safe Mode, waiting for disk reports ...\n");
+      }
+      if (flselector.FLSelector_switch(db_name + "." + table_name) == FLS_Policy.LOONG_STORE){
+        LOG.info("ztt_findBestLoongDevice: we are in LOONG_STORE policy!");
+        NodeInfo ni = ndmap.get(node);
+        if (ni == null) {
+          throw new IOException("Node '" + node + "' does not exist in NDMap, are you sure node '"
+              + node + "' belongs to this MetaStore?"
+              + hiveConf.getVar(HiveConf.ConfVars.LOCAL_ATTRIBUTION) + "\n");
+        }
+        List<DeviceInfo> dilist = new ArrayList<DeviceInfo>();
+        if (ni.dis == null) {
+          return null;
+        }
+        for(DeviceInfo di : ni.dis) {
+          if(admap.contains(di) && DeviceInfo.getTag(di.prop) == MetaStoreConst.MDeviceProp.__LOONGSTORE__) {
+            LOG.info("ztt_findBestLoongDevice: this device is : "+ di.dev  +" it's loong device");
+            dilist.add(di);
+          }
+        }
+        String bestDev = null;
+        long free = 0;
+
+        if (dilist == null) {
+          return null;
+        }
+        for (DeviceInfo di : dilist) {
+          if (di.free > free) {
+            bestDev = di.dev;
+            free = di.free;
+          }
+        }
+        if (bestDev == null) {
+          Random r = new Random();
+          if (dilist.size() > 0) {
+            return dilist.get(r.nextInt(dilist.size())).dev;
+          }
+        }
+        return bestDev;
+      } else {
+        return findBestDevice(node, flp);
+      }
+    }
+
     public String findBestDevice(String node, FileLocatingPolicy flp) throws IOException {
       if (safeMode) {
         throw new IOException("Disk Manager is in Safe Mode, waiting for disk reports ...\n");
@@ -4913,14 +5397,93 @@ public class DiskManager {
               continue;
             }
 
+            List<SFileLocation> onrepFLs = new ArrayList<SFileLocation>();
+            int onrep_nr = 0;
+            for (SFileLocation fl : r.file.getLocations()) {
+              if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONREP) {
+                onrepFLs.add(fl);
+                ++onrep_nr;
+              }
+            }
+         // 如果存在ONREP状态的位置，则直接加到torep里面
+            if (!onrepFLs.isEmpty()) {
+              for (SFileLocation nloc : onrepFLs) {
+                JSONObject jo = new JSONObject();
+                try {
+                  JSONObject j = new JSONObject();
+                  NodeInfo ni = ndmap.get(r.file.getLocations().get(master).getNode_name());
+                  String fromMp, toMp;
+
+                  if (ni == null) {
+                    throw new IOException("Can not find Node '"
+                        + r.file.getLocations().get(master).getNode_name() +
+                        "' in nodemap now, is it offline? fid(" + r.file.getFid() + ")");
+                  }
+                  fromMp = ni.getMP(r.file.getLocations().get(master).getDevid());
+                  if (fromMp == null) {
+                    throw new IOException("Can not find Device '"
+                        + r.file.getLocations().get(master).getDevid() +
+                        "' in NodeInfo '" + r.file.getLocations().get(master).getNode_name()
+                        + "', fid(" + r.file.getFid()
+                        + ")");
+                  }
+                  j.put("node_name", r.file.getLocations().get(master).getNode_name());
+                  j.put("devid", r.file.getLocations().get(master).getDevid());
+                  j.put("mp", fromMp);
+                  j.put("location", r.file.getLocations().get(master).getLocation());
+                  jo.put("from", j);
+
+                  j = new JSONObject();
+                  ni = ndmap.get(nloc.getNode_name());
+                  if (ni == null) {
+                    if (nloc != null) {
+                      getRS().delSFileLocation(nloc.getDevid(), nloc.getLocation());
+                    }
+                    throw new IOException("Can not find Node '" + nloc.getNode_name()
+                        + "' in nodemap now, is it offline? fid("
+                        + r.file.getFid() + ")");
+                  }
+                  toMp = ni.getMP(nloc.getDevid());
+                  if (toMp == null) {
+                    throw new IOException("Can not find Device '" + nloc.getDevid() +
+                        "' in NodeInfo '" + nloc.getNode_name() + "', fid(" + r.file.getFid() + ")");
+                  }
+                  j.put("node_name", nloc.getNode_name());
+                  j.put("devid", nloc.getDevid());
+                  j.put("mp", toMp);
+                  j.put("location", nloc.getLocation());
+                  jo.put("to", j);
+                } catch (JSONException e) {
+                  LOG.error(e, e);
+                  release_rep_limit();
+                  continue;
+                }
+                synchronized (ndmap) {
+                  NodeInfo ni = ndmap.get(nloc.getNode_name());
+                  if (ni == null) {
+                    LOG.error("Can not find Node '" + nloc.getNode_name()
+                        + "' in nodemap now, is it offline?");
+                    release_rep_limit();
+                  } else {
+                    synchronized (ni.toRep) {
+                      ni.toRep.add(jo);
+                      LOG.info("----> ADD to Node " + nloc.getNode_name() + "'s toRep " + jo);
+                    }
+                  }
+                }
+              }
+            }
+
+            // onrep的位置加上创建文件时的位置如果小于 副本数，则需要重新找结点
+            if (onrep_nr + r.begin_idx < r.file.getRep_nr()) {
             flp = flp_default = new FileLocatingPolicy(excludes, excl_dev,
                 FileLocatingPolicy.EXCLUDE_NODES_AND_RANDOM,
                 FileLocatingPolicy.EXCLUDE_DEVS_AND_RANDOM, true);
             flp.length_hint = r.file.getLength();
             flp_default.length_hint = r.file.getLength();
 
-            for (int i = r.begin_idx; i < r.file.getRep_nr(); i++, flp = flp_default) {
-              if (i == r.begin_idx) {
+            for (int i = r.begin_idx + onrep_nr; i < r.file.getRep_nr(); i++, flp = flp_default) {
+              if (onrep_nr == 0 && i == r.begin_idx) {
                 // TODO: Use FLSelector here to decide whether we need replicate it to CACHE device
                 String table = r.file.getDbName() + "." + r.file.getTableName();
                 switch (flselector.FLSelector_switch(table)) {
@@ -5099,6 +5662,7 @@ public class DiskManager {
                 LOG.error(e, e);
                 release_rep_limit();
               }
+            }
             }
           } else if (r.op == DMRequest.DMROperation.MIGRATE) {
             SFileLocation source = null, target = null;
@@ -5817,10 +6381,7 @@ public class DiskManager {
                           synchronized (MetaStoreConst.file_reopen_lock) {
                             SFile file = rs.getSFile(newsfl.getFid());
                             if (file != null) {
-                              if (file.getStore_status() == MetaStoreConst.MFileStoreStatus.INCREATE) {
-                                LOG.warn("Somebody reopen the file " + file.getFid() + " and we do replicate on it, so ignore this replicate and delete it:(");
-                                toDel = newsfl;
-                              } else {
+                              if (file.getStore_status() != MetaStoreConst.MFileStoreStatus.INCREATE) {
                                 toCheckRep.add(file);
                                 newsfl.setVisit_status(MetaStoreConst.MFileLocationVisitStatus.ONLINE);
                                 // BUG-XXX: We should check the digest here, and compare it with file.getDigest().

@@ -990,7 +990,7 @@ public class CacheStore {
     	      SFile sf = (SFile) this.readObject(ObjectType.SFILE, en.getKey());
     	      if (sf == null) {
     	        LOG.debug("in CacheStore findFiles(), SFile("+ en.getKey() + ") is null, bad...");
-    	      } else if (sf.getStore_status() != MetaStoreConst.MFileStoreStatus.INCREATE) {
+    	      } else {
     	        temp.add(sf);
     	      }
     	    } catch (Exception e) {
@@ -1017,6 +1017,12 @@ public class CacheStore {
     		LOG.warn("sfilelocation is null in fid " + m.getFid());
     		continue;
     	}
+
+    	//ztt 若文件处于增量复制状态服务重启了,放到under中,在diskmanager中再做处理
+    	 if (m.getStore_status() == MetaStoreConst.MFileStoreStatus.INCREATE) {
+    	   underReplicated.add(m);
+    	 }
+
       // find under replicated files
       if (m.getStore_status() == MetaStoreConst.MFileStoreStatus.CLOSED ||
           m.getStore_status() == MetaStoreConst.MFileStoreStatus.REPLICATED) {
@@ -1038,14 +1044,18 @@ public class CacheStore {
       }
       // find over  replicated files
       if (m.getStore_status() != MetaStoreConst.MFileStoreStatus.INCREATE) {
-        int nr = 0;
+        int onlinenr = 0;
+        int onrepnr = 0;
 
         for (SFileLocation fl : l) {
           if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE) {
-            nr++;
+            onlinenr++;
+          }
+          if(fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONREP) {
+            onrepnr ++;
           }
         }
-        if (m.getRep_nr() < nr) {
+        if (m.getRep_nr() < onlinenr + onrepnr && onlinenr > 0) {
           try {
             overReplicated.add(m);
           } catch (javax.jdo.JDOObjectNotFoundException e) {
@@ -1059,7 +1069,7 @@ public class CacheStore {
         lingering.add(m);
       }
       if (m.getStore_status() != MetaStoreConst.MFileStoreStatus.INCREATE) {
-        int offnr = 0, onnr = 0, suspnr = 0;
+        int offnr = 0, onnr = 0, suspnr = 0, onrepnr = 0;
 
         for (SFileLocation fl : l) {
           if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE) {
@@ -1068,13 +1078,15 @@ public class CacheStore {
             offnr++;
           } else if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.SUSPECT) {
             suspnr++;
+          } else if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONREP) {
+            onrepnr++;
           }
         }
         // NOTE: logic is ->
         // if online nr >= requested nr, we try to remove any offline/suspect SFLs,
         // otherwise, if online + offline + suspect >= node_nr, try to remove offline SFLs
-        if ((m.getRep_nr() <= onnr && (offnr > 0 || suspnr > 0)) ||
-            (onnr + offnr + suspnr >= node_nr && offnr > 0)) {
+        if ((m.getRep_nr() <= onnr && (offnr > 0 || suspnr > 0 || onrepnr > 0)) ||
+            (onnr + offnr + suspnr + onrepnr >= node_nr && offnr > 0)) {
           try {
             lingering.add(m);
           } catch (javax.jdo.JDOObjectNotFoundException e) {
