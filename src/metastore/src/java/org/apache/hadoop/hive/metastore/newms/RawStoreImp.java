@@ -646,6 +646,9 @@ public class RawStoreImp implements RawStore {
 	      case MetaStoreConst.MFileLocationVisitStatus.SUSPECT:
 	        DMProfile.sflsuspectR.incrementAndGet();
 	        break;
+	      case MetaStoreConst.MFileLocationVisitStatus.INCREP:
+	        DMProfile.sflincrepR.incrementAndGet();
+	        break;
 	      }
 	      // send the SFL state change message
 	      HashMap<String, Object> old_params = new HashMap<String, Object>();
@@ -1290,10 +1293,10 @@ public class RawStoreImp implements RawStore {
 	}
 
 	@Override
-	public void findFiles(List<SFile> underReplicated, List<SFile> overReplicated, List<SFile> lingering, long from,
-			long to) throws MetaException {
+	public void findFiles(List<SFile> underReplicated, List<SFile> overReplicated, List<SFile> lingering,
+	    List<SFile> incrReplicated, long from, long to) throws MetaException {
 		try {
-			cs.findFiles(underReplicated, overReplicated, lingering, from, to);
+			cs.findFiles(underReplicated, overReplicated, lingering, incrReplicated, from, to);
 		} catch (Exception e) {
 			LOG.error(e,e);
 			throw new MetaException(e.getMessage());
@@ -1839,10 +1842,13 @@ public class RawStoreImp implements RawStore {
           } catch (Exception e) {
           }
 
-          // BUG-XXX: we do NOT use L1/L4 device as reopen location candidate
+          // BUG-XXX: we do NOT use L0/L4 device as reopen location candidate
+          // Exception: for LoongStore (as L4 device), it is possible to be reopen candidate
           if (x.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE &&
               (d != null && (DeviceInfo.getType(d.getProp()) == MetaStoreConst.MDeviceProp.GENERAL ||
-              DeviceInfo.getType(d.getProp()) == MetaStoreConst.MDeviceProp.MASS))) {
+              DeviceInfo.getType(d.getProp()) == MetaStoreConst.MDeviceProp.CACHE ||
+              DeviceInfo.getType(d.getProp()) == MetaStoreConst.MDeviceProp.MASS ||
+              ((DeviceInfo.getTags(d.getProp()) & MetaStoreConst.MDeviceProp.__LOONGSTORE__) != 0)))) {
             selected = true;
             idx = i;
             break;

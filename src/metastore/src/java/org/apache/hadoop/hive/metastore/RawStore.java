@@ -525,7 +525,8 @@ public interface RawStore extends Configurable {
 
   public List<SFile> findLingeringFiles(long node_nr) throws MetaException;
 
-  public void findFiles(List<SFile> underReplicated, List<SFile> overReplicated, List<SFile> lingering, long from, long to) throws MetaException;
+  public void findFiles(List<SFile> underReplicated, List<SFile> overReplicated, List<SFile> lingering,
+      List<SFile> incrReplicated, long from, long to) throws MetaException;
 
   public void findVoidFiles(List<SFile> voidFiles) throws MetaException;
 

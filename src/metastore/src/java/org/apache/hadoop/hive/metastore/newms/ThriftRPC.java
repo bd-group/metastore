@@ -3882,7 +3882,7 @@ public class ThriftRPC extends FacebookBase implements
     //                          repnr     OP=3
     //                          policy    OP=0
     //         L?L? -> L?L?  ->  L?L?     OP=4
-    //          R3      R2        R1      OP=5
+    //                 R4R3      R2R1     OP=5
     int true_op = op & 0xff;
 
   	switch (true_op) {
@@ -3900,9 +3900,9 @@ public class ThriftRPC extends FacebookBase implements
           HMSHandler.parseOrderList(op >>> 8));
     case 5:{
       List<Integer> rounds = new ArrayList<Integer>();
-      for (int i = 0; i < 3; i++) {
-        op >>>= 8;
-        rounds.add(op & 0xff);
+      for (int i = 0; i < 4; i++) {
+        op >>>= 4;
+        rounds.add(op & 0x0f);
       }
       return DiskManager.flselector.roundWatched(table, rounds);
     }
@@ -3943,6 +3943,10 @@ public class ThriftRPC extends FacebookBase implements
 	}
 
   @Override
+  /*
+   * dtype: L0-L4, and highest bit stands for INCRep
+   * @see org.apache.hadoop.hive.metastore.api.ThriftHiveMetastore.Iface#replicate(long, int)
+   */
   public int replicate(long fid, int dtype) throws MetaException, FileOperationException,
       TException {
     DMProfile.replicate.incrementAndGet();

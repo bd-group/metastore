@@ -40,6 +40,7 @@ import net.sf.json.JSONObject;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.DiskManager.DMThread.DMReport;
 import org.apache.hadoop.hive.metastore.DiskManager.FLSelector.FLS_Policy;
 import org.apache.hadoop.hive.metastore.HiveMetaStore.HMSHandler;
@@ -99,6 +100,7 @@ public class DiskManager {
     public final ConcurrentHashMap<String, Long> toReRep = new ConcurrentHashMap<String, Long>();
     public final Map<String, Long> toUnspc = new ConcurrentHashMap<String, Long>();
     public final Map<String, MigrateEntry> rrmap = new ConcurrentHashMap<String, MigrateEntry>();
+    public final Set<Long> incRepFiles = new HashSet<Long>();
 
     public final ConcurrentLinkedQueue<ReplicateRequest> rrq = new ConcurrentLinkedQueue<ReplicateRequest>();
 
@@ -143,7 +145,8 @@ public class DiskManager {
 
       @Override
       public String toString() {
-        return "fid " + fid + " TO " + DeviceInfo.getTypeStr(dtype);
+        return "fid " + fid + " TO " + DeviceInfo.getTypeStr(dtype) +
+            (((dtype & 0x80000000) != 0) ? " INCREP" : "REP");
       }
     }
 
@@ -161,12 +164,13 @@ public class DiskManager {
       public TreeMap<Long, String> distribution;
       public TreeMap<String, Long> statis;
       public List<Integer> accept_types;
-      // We define 3 rounds of dev location selections:
+      // We define 4 rounds of dev location selections:
       // r1: first location (create new file)
       // r2: first replica location (do REP in repthread)
       // r3: other replicas (in do_replicate)
-      // Note-XXX: r2 should be L1 when you want to put your replicas to FASTEST devices
-      public int r1, r2, r3;
+      // r4: increplicates
+      // Note-XXX: r2 should be L1 when you want to put your replicas to FAST SSD devices
+      public int r1, r2, r3, r4;
 
       public FLEntry(String table, long l1Key, long l2KeyMax) {
         this.table = table;
@@ -178,6 +182,7 @@ public class DiskManager {
         r1 = MetaStoreConst.MDeviceProp.L2;
         r2 = MetaStoreConst.MDeviceProp.L2;
         r3 = MetaStoreConst.MDeviceProp.L2;
+        r4 = MetaStoreConst.MDeviceProp.L2;
       }
 
       public void updateStatis(String node) {
@@ -906,7 +911,7 @@ public class DiskManager {
       }
 
       public boolean roundWatched(String table, List<Integer> rounds) {
-        if (rounds.size() != 3) {
+        if (rounds.size() != 4) {
           return false;
         }
         FLEntry fle = context.get(table);
@@ -915,6 +920,7 @@ public class DiskManager {
             fle.r1 = rounds.get(0);
             fle.r2 = rounds.get(1);
             fle.r3 = rounds.get(2);
+            fle.r4 = rounds.get(3);
           }
           return true;
         }
@@ -939,6 +945,7 @@ public class DiskManager {
             r += "R1=" + DeviceInfo.getTypeStr(e.getValue().r1) + ", ";
             r += "R2=" + DeviceInfo.getTypeStr(e.getValue().r2) + ", ";
             r += "R3=" + DeviceInfo.getTypeStr(e.getValue().r3) + ", ";
+            r += "R4=" + DeviceInfo.getTypeStr(e.getValue().r4) + ", ";
             r += "l1Key=" + e.getValue().l1Key + ", l2KeyMax?=" + e.getValue().l2KeyMax + "\n";
             synchronized (e.getValue()) {
               if (e.getValue().distribution.size() > 0) {
@@ -988,6 +995,9 @@ public class DiskManager {
             break;
           case MetaStoreConst.MDeviceProp.__AUTOSELECT_R3__:
             cur_level = fle.r3;
+            break;
+          case MetaStoreConst.MDeviceProp.__AUTOSELECT_R4__:
+            cur_level = fle.r4;
             break;
           }
           // BUG-XXX: if FLE order size is ZERO, use default orders!
@@ -1133,6 +1143,7 @@ public class DiskManager {
       public static AtomicLong query = new AtomicLong(0);
       public static AtomicLong replicate = new AtomicLong(0);
       public static AtomicLong loadStatusBad = new AtomicLong(0);
+      public static AtomicLong sflincrepR = new AtomicLong(0);
     }
 
     public static class SFLTriple implements Comparable<SFLTriple> {
@@ -1431,13 +1442,19 @@ public class DiskManager {
 
       // Note that, the quota we save is -quota
       public int getQuota() {
-        int keep = prop >>> MetaStoreConst.MDeviceProp.__QUOTA_SHIFT__;
+        int keep = (prop & MetaStoreConst.MDeviceProp.__QUOTA_MASK__) >>>
+          MetaStoreConst.MDeviceProp.__QUOTA_SHIFT__;
         return keep > 100 ? 0 : (100 - keep);
       }
 
       public static int getQuota(int prop) {
-        int keep = prop >>> MetaStoreConst.MDeviceProp.__QUOTA_SHIFT__;
+        int keep = (prop & MetaStoreConst.MDeviceProp.__QUOTA_MASK__) >>>
+          MetaStoreConst.MDeviceProp.__QUOTA_SHIFT__;
         return keep > 100 ? 0 : (100 - keep);
+      }
+
+      public static int getTags(int prop) {
+        return prop & MetaStoreConst.MDeviceProp.__TAG_MASK__;
       }
 
       public String getUsage() {
@@ -1888,6 +1905,7 @@ public class DiskManager {
       public long offlineDelTimeout = 3600 * 1000; // 1 hour
       public long suspectDelTimeout = 30 * 24 * 3600 * 1000; // 30 days
       public long inactiveNodeTimeout = 3600 * 1000; // 1 hour
+      public long incRepTimeout = 5 * 60 * 1000; // 5 minutes
 
       private long last_repTs = System.currentTimeMillis();
       private long last_rerepTs = System.currentTimeMillis();
@@ -2044,7 +2062,7 @@ public class DiskManager {
         }
       }
 
-      public void do_replicate(SFile f, int nr, int dtype) {
+      public void do_replicate(SFile f, int nr, int dtype, boolean isIncRep) {
         int init_size = f.getLocationsSize();
         int valid_idx = 0;
         boolean master_marked = false;
@@ -2257,7 +2275,8 @@ public class DiskManager {
               }
               nloc = new SFileLocation(node_name, f.getFid(), devid, location,
                   i, System.currentTimeMillis(),
-                  MetaStoreConst.MFileLocationVisitStatus.OFFLINE, "SFL_REP_DEFAULT");
+                  isIncRep ? MetaStoreConst.MFileLocationVisitStatus.INCREP :
+                    MetaStoreConst.MFileLocationVisitStatus.OFFLINE, "SFL_REP_DEFAULT");
               synchronized (trs) {
                 if (trs.createFileLocation(nloc)) {
                   break;
@@ -2317,6 +2336,132 @@ public class DiskManager {
           } catch (InvalidObjectException e) {
             LOG.error(e, e);
           }
+        }
+      }
+
+      public void do_increplicate(SFile f, SFileLocation nloc) {
+        int init_size = f.getLocationsSize();
+        int valid_idx = 0;
+        boolean master_marked = false;
+
+        if (init_size <= 0) {
+          LOG.error("No valid locations for file " + f.getFid());
+          // FIXME: this means we should clean this file?
+          if (f.getStore_status() == MetaStoreConst.MFileStoreStatus.CLOSED ||
+              f.getStore_status() == MetaStoreConst.MFileStoreStatus.REPLICATED) {
+            LOG.warn("FID " + f.getFid() + " will be deleted(reason: no locations), however it's status is " + f.getStore_status());
+            if (f.getLocationsSize() == 0) {
+              synchronized (trs) {
+                try {
+                  // delete locations first
+                  trs.delSFile(f.getFid());
+                } catch (MetaException e) {
+                  LOG.error(e, e);
+                }
+              }
+            } else {
+              do_delete(f, f.getLocationsSize());
+            }
+          }
+          return;
+        }
+
+        // find the valid entry
+        for (int i = 0; i < init_size; i++) {
+          if (!master_marked &&
+              f.getLocations().get(i).getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE) {
+            valid_idx = i;
+            master_marked = true;
+            if (f.getLocations().get(i).getNode_name().equals("")) {
+              try {
+                f.getLocations().get(i).setNode_name(getAnyNode(f.getLocations().get(i).getDevid()));
+              } catch (MetaException e) {
+                LOG.error(e, e);
+                master_marked = false;
+              }
+            }
+          }
+        }
+
+        // If master has not been marked, async replicate sfile failed.
+        if (!master_marked) {
+          LOG.error("Async replicate SFile " + f.getFid() + ", but no valid FROM SFileLocations!");
+          // FIXME: this means we should clean this file?
+          if (f.getStore_status() == MetaStoreConst.MFileStoreStatus.CLOSED ||
+              f.getStore_status() == MetaStoreConst.MFileStoreStatus.REPLICATED) {
+            boolean should_delete = true;
+
+            if (f.getLocationsSize() == 0) {
+              synchronized (trs) {
+                try {
+                  // delete locations first
+                  trs.delSFile(f.getFid());
+                } catch (MetaException e) {
+                  LOG.error(e, e);
+                }
+              }
+            } else {
+              // BUG-XXX: do NOT delete a file when some SFL is in SUSPECT status
+              for (SFileLocation sfl : f.getLocations()) {
+                if (sfl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE ||
+                    sfl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.SUSPECT) {
+                  should_delete = false;
+                }
+              }
+              if (should_delete) {
+                do_delete(f, f.getLocationsSize());
+              }
+            }
+            LOG.warn("FID " + f.getFid() + " deleted=" + should_delete +
+                " (reason: no locations), however it's status is " + f.getStore_status());
+          }
+          return;
+        }
+
+        try {
+          // indicate file transfer
+          JSONObject jo = new JSONObject();
+          try {
+            JSONObject j = new JSONObject();
+            NodeInfo ni = ndmap.get(f.getLocations().get(valid_idx).getNode_name());
+
+            if (ni == null) {
+              throw new IOException("Can not find Node '" + f.getLocations().get(valid_idx).getNode_name() + "' in nodemap now, is it offline?");
+            }
+            j.put("node_name", f.getLocations().get(valid_idx).getNode_name());
+            j.put("devid", f.getLocations().get(valid_idx).getDevid());
+            j.put("mp", ni.getMP(f.getLocations().get(valid_idx).getDevid()));
+            j.put("location", f.getLocations().get(valid_idx).getLocation());
+            jo.put("from", j);
+
+            j = new JSONObject();
+            ni = ndmap.get(nloc.getNode_name());
+            if (ni == null) {
+              throw new IOException("Can not find Node '" + nloc.getNode_name() + "' in nodemap now, is it offline?");
+            }
+            j.put("node_name", nloc.getNode_name());
+            j.put("devid", nloc.getDevid());
+            j.put("mp", ni.getMP(nloc.getDevid()));
+            j.put("location", nloc.getLocation());
+            jo.put("to", j);
+          } catch (JSONException e) {
+            LOG.error(e, e);
+            throw new IOException(e.getMessage());
+          }
+          synchronized (ndmap) {
+            NodeInfo ni = ndmap.get(nloc.getNode_name());
+
+            if (ni == null) {
+              LOG.error("Can not find Node '" + nloc.getNode_name() + "' in nodemap now, is it offline?");
+            } else {
+              synchronized (ni.toRep) {
+                ni.toRep.add(jo);
+                LOG.info("----> ADD " + nloc.getNode_name() + "'s toRep " + jo);
+              }
+            }
+          }
+        } catch (Exception e) {
+          LOG.error(e, e);
         }
       }
 
@@ -2398,10 +2543,12 @@ public class DiskManager {
         //70 l3Ttotal,l3Tfree,l3offline,
         //73 l4Ttotal,l4Tfree,l4offline,
         //76 localQ,MsgQ,failedQ,
+        //79 l0total,l0free,l0offline,
         // {tbls},
         StringBuffer sb = new StringBuffer(2048);
         long free = 0, used = 0;
         long truetotal = 0, truefree = 0, offlinefree = 0, sharedfree = 0;
+        long l0total = 0, l0free = 0, l0offline = 0;
         long l1total = 0, l1free = 0, l1offline = 0;
         long l2total = 0, l2free = 0, l2offline = 0;
         long l3total = 0, l3free = 0, l3offline = 0;
@@ -2424,6 +2571,14 @@ public class DiskManager {
   	          sharedfree += e.getValue().free;
   	        }
   	        switch (e.getValue().getType()) {
+  	        case MetaStoreConst.MDeviceProp.L0:
+  	          if (e.getValue().isOffline) {
+  	            l0offline += e.getValue().free;
+  	          } else {
+  	            l0free += e.getValue().free;
+  	            l0total += (e.getValue().free + e.getValue().used);
+  	          }
+  	          break;
   	        case MetaStoreConst.MDeviceProp.L1:
   	          if (e.getValue().isOffline) {
                 l1offline += e.getValue().free;
@@ -2594,6 +2749,9 @@ public class DiskManager {
         sb.append(MsgServer.getLocalQueueSize() + ",");
         sb.append(MsgServer.getQueueSize() + ",");
         sb.append(MsgServer.getFailedQueueSize() + ",");
+        sb.append(l0total + ",");
+        sb.append(l0free + ",");
+        sb.append(l0offline + ",");
         sb.append("\n");
 
         // generate report file
@@ -2659,9 +2817,15 @@ public class DiskManager {
             }
             // BUG-XXX: do NOT replicate open files!
             if (sf.getStore_status() == MetaStoreConst.MFileStoreStatus.INCREATE) {
-              LOG.warn("Replicate request " + rr + " BAD: do not submit. (INCREATE)");
+              if ((rr.dtype & 0x80000000) != 0) {
+                // this means user want to do increp
+                do_replicate(sf, 1, rr.dtype & MetaStoreConst.MDeviceProp.__TYPE_MASK__, true);
+                LOG.info("Replicate request " + rr + " OK: submitted.");
+              } else {
+                LOG.warn("Replicate request " + rr + " BAD: do not submit. (INCREATE)");
+              }
             } else {
-              do_replicate(sf, 1, rr.dtype);
+              do_replicate(sf, 1, rr.dtype & MetaStoreConst.MDeviceProp.__TYPE_MASK__, false);
               LOG.info("Replicate request " + rr + " OK: submitted.");
             }
           }
@@ -2709,13 +2873,14 @@ public class DiskManager {
             List<SFile> under = new ArrayList<SFile>();
             List<SFile> over = new ArrayList<SFile>();
             List<SFile> linger = new ArrayList<SFile>();
+            List<SFile> increp = new ArrayList<SFile>();
             Map<SFile, Integer> munder = new TreeMap<SFile, Integer>();
             Map<SFile, Integer> mover = new TreeMap<SFile, Integer>();
 
             LOG.info("Check Under/Over Replicated or Lingering Files R{" + ff_start + "," + (ff_start + ff_range) + "} [" + times + "]");
             synchronized (trs) {
               try {
-                trs.findFiles(under, over, linger, ff_start, ff_start + ff_range);
+                trs.findFiles(under, over, linger, increp, ff_start, ff_start + ff_range);
                 ff_start += ff_range;
                 if (ff_start > trs.countFiles()) {
                   ff_start = 0;
@@ -2739,8 +2904,9 @@ public class DiskManager {
               LOG.info("check under replicated files for fid " + f.getFid());
               for (SFileLocation fl : f.getLocations()) {
                 if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE ||
-                    (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.OFFLINE &&
-                    fl.getUpdate_time() + repTimeout > System.currentTimeMillis())) {
+                    ((fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.OFFLINE ||
+                      fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.INCREP) &&
+                        fl.getUpdate_time() + repTimeout > System.currentTimeMillis())) {
                   nr++;
                 }
               }
@@ -2750,7 +2916,8 @@ public class DiskManager {
             }
 
             for (Map.Entry<SFile, Integer> entry : munder.entrySet()) {
-              do_replicate(entry.getKey(), entry.getValue().intValue(), MetaStoreConst.MDeviceProp.__AUTOSELECT_R3__);
+              do_replicate(entry.getKey(), entry.getValue().intValue(),
+                  MetaStoreConst.MDeviceProp.__AUTOSELECT_R3__, false);
             }
 
             // handle over replicated files
@@ -2818,7 +2985,7 @@ public class DiskManager {
                     ngsize_exceeded = true;
                   }
                   if (f.getStore_status() == MetaStoreConst.MFileStoreStatus.REPLICATED) {
-                    // this means we should clean up the OFFLINE locs
+                    // this means we should clean up the OFFLINE/INCREP locs
                     // BUG-XXX: refer to next BUG-XXX hint
                     do_clean = true;
                   }
@@ -2829,7 +2996,8 @@ public class DiskManager {
               }
 
               for (SFileLocation fl : f.getLocations()) {
-                if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.OFFLINE) {
+                if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.OFFLINE ||
+                    fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.INCREP) {
                   // if this OFFLINE sfl exist too long or we do exceed the ng'size limit
                   if (do_clean && f.getStore_status() == MetaStoreConst.MFileStoreStatus.REPLICATED) {
                     // BUG-XXX: if we want to re-replicate a sfile and it is in REPLICATED state, then
@@ -2853,6 +3021,7 @@ public class DiskManager {
                 }
               }
             }
+
             for (SFileLocation fl : s) {
               synchronized (trs) {
                 // BUG-XXX: space leaking? we should trigger a delete to dservice; otherwise enable VERIFY to auto clean the dangling dirs.
@@ -2867,10 +3036,35 @@ public class DiskManager {
             for (SFile f : sd) {
               do_delete(f, f.getLocationsSize());
             }
+
+            // check incr replicated files
+            for (SFile f : increp) {
+              // check if we should INC replicate this SFile
+              SFileLocation sfl_target = null;
+
+              if (f.getLocations() != null) {
+                for (SFileLocation fl : f.getLocations()) {
+                  if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.INCREP) {
+                    sfl_target = fl;
+                    break;
+                  }
+                }
+              }
+              if (hiveConf.getBoolVar(ConfVars.DM_INCREMENT_REP)) {
+                if (sfl_target == null) {
+                  // create a new INCREP state filelocation
+                  do_replicate(f, 1, MetaStoreConst.MDeviceProp.__AUTOSELECT_R4__, true);
+                } else if (System.currentTimeMillis() - sfl_target.getUpdate_time() >= incRepTimeout) {
+                  do_increplicate(f, sfl_target);
+                }
+              }
+            }
+
             last_repTs = System.currentTimeMillis();
             under.clear();
             over.clear();
             linger.clear();
+            increp.clear();
           }
 
           // check invalid file locations on invalid devices
@@ -5875,8 +6069,17 @@ public class DiskManager {
                             SFile file = rs.getSFile(newsfl.getFid());
                             if (file != null) {
                               if (file.getStore_status() == MetaStoreConst.MFileStoreStatus.INCREATE) {
-                                LOG.warn("Somebody reopen the file " + file.getFid() + " and we do replicate on it, so ignore this replicate and delete it:(");
-                                toDel = newsfl;
+                                // BUG-XXX: 2 situations here
+                                // 1. reopen: bad, delete current SFL
+                                // 2. increp: ok, accept current SFL, but do NOT update SFL except update_time
+                                if (newsfl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.INCREP) {
+                                  newsfl.setDigest("INCREP:" + args[3]);
+                                  rs.updateSFileLocation(newsfl);
+                                } else {
+                                  LOG.warn("Somebody reopen the file " + file.getFid() +
+                                      " and we do replicate on it, so ignore this replicate and delete it:(");
+                                  toDel = newsfl;
+                                }
                               } else {
                                 toCheckRep.add(file);
                                 newsfl.setVisit_status(MetaStoreConst.MFileLocationVisitStatus.ONLINE);
