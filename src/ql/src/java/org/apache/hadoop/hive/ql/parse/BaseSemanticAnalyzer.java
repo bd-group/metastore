@@ -683,6 +683,16 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
           zlog.warn("TOK_SUBPARTITION_EXPER,tree-----");
           List<PartitionDefinition> sub_parts = getPartitionDef(p_child,global_sub_pd);
           pd.setPartitions(sub_parts);
+
+          Iterator<PartitionDefinition> subpd_Iterator = sub_parts.iterator();
+          List<String> args = new ArrayList<String>();
+          while(subpd_Iterator.hasNext())
+          {
+            PartitionDefinition tmppd = subpd_Iterator.next();
+            args.addAll(tmppd.getPi().getArgs());
+          }
+          pd.getPi().setArgs(args);
+          colList.get(0).setComment(pd.getPi().toJson());
           break;
         default:
           assert(false);
