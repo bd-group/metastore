@@ -640,12 +640,26 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
           zlog.info("-----tianlong-----colList"+colList.toString());
           zlog.info("-----tianlong-----"+p_child.toString());
           break;
+        //有这个case：TOK_SPLIT_EXPER的只有range和list分区
         case  HiveParser.TOK_SPLIT_EXPER:
         case  HiveParser.TOK_PARTITION_EXPER://一级分区定义，子分区定义也在此分支中处理
           zlog.warn("TOK_PARTITION_EXPER,tree+++++");
           List<PartitionDefinition> parts = getPartitionDef(p_child,global_sub_pd);
           pd.setPartitions(parts);
 
+          Iterator<PartitionDefinition> pdIterator = parts.iterator();
+          List<String> al = new ArrayList<String>();
+          while(pdIterator.hasNext())
+          {
+            PartitionDefinition tmppd = pdIterator.next();
+            al.addAll(tmppd.getPi().getArgs());
+            //zlog.info("-----tianlonglong-----pd.pi.args=="+tmppd.getPi().getArgs());
+          }
+          //zlog.info("-----tianlonglong-----al=="+al.toString());
+
+          pd.getPi().setArgs(al);
+          colList.get(0).setComment(pd.getPi().toJson());
+          //zlog.info("-----tianlonglong-----colList.get(0).getComment()=="+colList.get(0).getComment());
           break;
         // 第二级分区走这个case，处理第二个child，为什么要递归调用？？？？？？
         case  HiveParser.TOK_SUBSPLITED_BY:
@@ -700,7 +714,6 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
         zlog.warn("TOK_PARTITION_EXPER,tree+++++");
         List<PartitionDefinition> parts = getPartitionDef(p_child,global_sub_pd);
         pd.setPartitions(parts);
-
         break;
       case  HiveParser.TOK_SUBSPLITED_BY://直接跟在一级分区定义后，本子分区定义会直接传递给一级分区的所有分区
         global_sub_pd = new PartitionDefinition();
@@ -813,18 +826,21 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
               ASTNode para_value = (ASTNode) paras.getChild(i);
               partition.getValues().add(para_value.getText());
             }
+            partition.getPi().getArgs().add(part_name.getText()+":"+partition.getValues());
             break;
           case  HiveParser.TOK_VALUES_LESS:
             String value_i = part_para.getChild(0).getText();
             partition.getValues().add(last_part_min_value);
             partition.getValues().add(value_i);
             last_part_min_value = value_i;
+            partition.getPi().getArgs().add(part_name.getText()+"<"+last_part_min_value);
             break;
           case  HiveParser.TOK_VALUES_GREATER:
             String value_a = part_para.getChild(0).getText();
             partition.getValues().add(value_a);
             partition.getValues().add(last_part_max_value);
             last_part_max_value = value_a;
+            partition.getPi().getArgs().add(part_name.getText()+">"+last_part_max_value);
             break;
           default:
             assert(false);

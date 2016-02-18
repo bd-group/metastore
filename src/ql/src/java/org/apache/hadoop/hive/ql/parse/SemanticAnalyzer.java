@@ -9199,7 +9199,6 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
 //        partCols = getColumns((ASTNode) child.getChild(0), false);
       case HiveParser.TOK_PARTITIONED_BY:
         pd.setTableName(tableName);
-        //LOG.info("-----tianlong------case HiveParser.TOK_PARTITIONED_BY:");
         partCols = analyzePartitionClause((ASTNode) child, pd);
 
         List<org.apache.hadoop.hive.metastore.api.Partition> ps = pd.toPartitionList();
@@ -9218,7 +9217,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
       case HiveParser.TOK_SPLITED_BY:
         pd.setTableName(tableName);
         splitCols = analyzePartitionClause((ASTNode) child, pd);
-        //LOG.info("------tianlong------case HiveParser.TOK_SPLITED_BY");
+        LOG.info("-----tianlonglong------case HiveParser.TOK_SPLITED_BY");
         List<org.apache.hadoop.hive.metastore.api.Partition> fileSplit_fakeParts
           = pd.toPartitionList();
         int h=1;
