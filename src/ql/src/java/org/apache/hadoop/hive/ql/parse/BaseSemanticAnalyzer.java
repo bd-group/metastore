@@ -845,12 +845,26 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
             last_part_min_value = value_i;
             partition.getPi().getArgs().add(part_name.getText()+"<"+last_part_min_value);
             break;
+          case  HiveParser.TOK_VALUES_LESS_OR_EQUALS:
+            String value_b = part_para.getChild(0).getText();
+            partition.getValues().add(last_part_min_value);
+            partition.getValues().add(value_b);
+            last_part_min_value = value_b;
+            partition.getPi().getArgs().add(part_name.getText()+"<="+last_part_min_value);
+            break;
           case  HiveParser.TOK_VALUES_GREATER:
             String value_a = part_para.getChild(0).getText();
             partition.getValues().add(value_a);
             partition.getValues().add(last_part_max_value);
             last_part_max_value = value_a;
             partition.getPi().getArgs().add(part_name.getText()+">"+last_part_max_value);
+            break;
+          case  HiveParser.TOK_VALUES_GREATER_OR_EQUALS:
+            String value_c = part_para.getChild(0).getText();
+            partition.getValues().add(value_c);
+            partition.getValues().add(last_part_max_value);
+            last_part_max_value = value_c;
+            partition.getPi().getArgs().add(part_name.getText()+">="+last_part_max_value);
             break;
           default:
             assert(false);
