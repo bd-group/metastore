@@ -966,13 +966,13 @@ createTableStatement
          tableComment?
          fileSplit?
          tablePartition?
-         tableBuckets?
-         tableSkewed?
-         tableRowFormat?
+         tableDistribution?
          tableFileFormat?
          tableLocation?
          tablePropertiesPrefixed?
-         tableDistribution?
+         tableBuckets?
+         tableSkewed?
+         tableRowFormat?
          (KW_AS selectStatement)?
       )
     -> ^(TOK_CREATETABLE $name $ext? ifNotExists?
