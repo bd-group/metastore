@@ -1222,7 +1222,7 @@ public class ObjectStore implements RawStore, Configurable {
   }
 
   public void findFiles(List<SFile> underReplicated, List<SFile> overReplicated, List<SFile> lingering,
-      long from, long to) throws MetaException {
+      List<SFile> incrReplicated, long from, long to) throws MetaException {
     long node_nr = countNode();
     boolean commited = false;
 
@@ -1293,7 +1293,7 @@ public class ObjectStore implements RawStore, Configurable {
           lingering.add(s);
         }
         if (m.getStore_status() != MetaStoreConst.MFileStoreStatus.INCREATE) {
-          int offnr = 0, onnr = 0, suspnr = 0;
+          int offnr = 0, onnr = 0, suspnr = 0, increpnr = 0;
 
           for (SFileLocation fl : l) {
             if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE) {
@@ -1302,17 +1302,53 @@ public class ObjectStore implements RawStore, Configurable {
               offnr++;
             } else if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.SUSPECT) {
               suspnr++;
+            } else if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.INCREP) {
+              increpnr++;
             }
           }
           // NOTE: logic is ->
-          // if online nr >= requested nr, we try to remove any offline/suspect SFLs,
-          // otherwise, if online + offline + suspect >= node_nr, try to remove offline SFLs
-          if ((m.getRep_nr() <= onnr && (offnr > 0 || suspnr > 0)) ||
-              (onnr + offnr + suspnr >= node_nr && offnr > 0)) {
+          // if online nr >= requested nr, we try to remove any offline/suspect/increp SFLs,
+          // otherwise, if online + offline + suspect + increp >= node_nr, try to remove offline SFLs.
+          // Only KEEP ONE increp SFL, try to remove increp SFLs.
+          if ((m.getRep_nr() <= onnr && (offnr > 0 || suspnr > 0 || increpnr > 0)) ||
+              (onnr + offnr + suspnr >= node_nr && offnr > 0) ||
+              increpnr > 1) {
             try {
               SFile s = convertToSFile(m);
               s.setLocations(l);
               lingering.add(s);
+            } catch (javax.jdo.JDOObjectNotFoundException e) {
+              // it means the file slips ...
+              LOG.error(e, e);
+            }
+          }
+        }
+        // find incrReplicated files
+        if (m.getStore_status() == MetaStoreConst.MFileStoreStatus.INCREATE) {
+          int onnr = 0, increpnr = 0;
+
+          for (SFileLocation fl : l) {
+            if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE) {
+              onnr++;
+            } else if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.INCREP) {
+              increpnr++;
+            }
+          }
+          if (onnr > 0 && increpnr > 0) {
+            try {
+              SFile s = convertToSFile(m);
+              s.setLocations(l);
+              incrReplicated.add(s);
+            } catch (javax.jdo.JDOObjectNotFoundException e) {
+              // it means the file slips ...
+              LOG.error(e, e);
+            }
+          } else if (HiveConf.getBoolVar(hiveConf, ConfVars.DM_INCREMENT_REP_AUTO) &&
+              onnr > 0 && increpnr == 0) {
+            try {
+              SFile s = convertToSFile(m);
+              s.setLocations(l);
+              incrReplicated.add(s);
             } catch (javax.jdo.JDOObjectNotFoundException e) {
               // it means the file slips ...
               LOG.error(e, e);
@@ -1994,6 +2030,10 @@ public class ObjectStore implements RawStore, Configurable {
   }
 
   public void createOrUpdateDevice(DeviceInfo di, Node node, NodeGroup ng) throws MetaException, InvalidObjectException {
+    if (di == null || di.dev == null) {
+      throw new InvalidObjectException("Invalid device: " + (di != null ? di.dev : "null DeviceInfo"));
+    }
+
     MDevice md = getMDevice(di.dev.trim());
     boolean doCreate = false;
     String ng_name = null;
@@ -2705,7 +2745,9 @@ public class ObjectStore implements RawStore, Configurable {
 
             if (x.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE &&
                 (DeviceInfo.getType(x.getDev().getProp()) == MetaStoreConst.MDeviceProp.GENERAL ||
-                DeviceInfo.getType(x.getDev().getProp()) == MetaStoreConst.MDeviceProp.BACKUP_ALONE)) {
+                DeviceInfo.getType(x.getDev().getProp()) == MetaStoreConst.MDeviceProp.CACHE ||
+                DeviceInfo.getType(x.getDev().getProp()) == MetaStoreConst.MDeviceProp.MASS ||
+                (DeviceInfo.getTags(x.getDev().getProp()) & MetaStoreConst.MDeviceProp.__LOONGSTORE__) != 0)) {
               selected = true;
               idx = i;
               break;
@@ -2894,6 +2936,9 @@ public class ObjectStore implements RawStore, Configurable {
         break;
       case MetaStoreConst.MFileLocationVisitStatus.SUSPECT:
         DMProfile.sflsuspectR.incrementAndGet();
+        break;
+      case MetaStoreConst.MFileLocationVisitStatus.INCREP:
+        DMProfile.sflincrepR.incrementAndGet();
         break;
       }
       // send the SFL state change message

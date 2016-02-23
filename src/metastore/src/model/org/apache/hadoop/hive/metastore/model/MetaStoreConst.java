@@ -22,6 +22,7 @@ public class MetaStoreConst {
     public static final int OFFLINE = 0;
     public static final int ONLINE = 1;
     public static final int SUSPECT = 2;
+    public static final int INCREP = 3;
   }
 
   public class MNodeStatus {
@@ -40,11 +41,14 @@ public class MetaStoreConst {
     public static final int MASS = 5; // L3: e.g. SATA
     public static final int RAM = 6; // L0: most fast device, memory
     public static final int __MAX__ = 7;
-    public static final int __AUTOSELECT_R1__ = -1;
-    public static final int __AUTOSELECT_R2__ = -2;
-    public static final int __AUTOSELECT_R3__ = -3;
+
+    public static final int __AUTOSELECT_R1__ = -1; // in create file
+    public static final int __AUTOSELECT_R2__ = -2; // in replicate queue
+    public static final int __AUTOSELECT_R3__ = -3; // in do_replicate
+    public static final int __AUTOSELECT_R4__ = -4; // in incr replicate
 
     // Leveling of devices
+    public static final int L0 = 6;
     public static final int L1 = 4;
     public static final int L2 = 0;
     public static final int L3 = 5;
@@ -56,6 +60,8 @@ public class MetaStoreConst {
 
     // tags of device: highest 4 bits
     public static final int __LOONGSTORE__ = 0x80000000;
+    public static final int __HDFS__ = 0x40000000;
+    public static final int __TAG_MASK__ = 0xf0000000;
   }
 
   // return if type1 BEFORE OR EQUAL type2

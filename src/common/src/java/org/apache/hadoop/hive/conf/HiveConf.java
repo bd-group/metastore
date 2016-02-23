@@ -733,6 +733,9 @@ public class HiveConf extends Configuration {
     DM_USE_QUOTA("hive.diskmanager.use.quota", false),
     DM_IDENTIFY_SHARED_DEV("hive.diskmanager.identify.shared.dev", true),
     DM_DSFSTAT_TIMEOUT("hive.diskmanager.cleandsfstat.timeout", 24 * 3600 * 1000),
+    DM_FORCE_NG_POLICY("hive.diskmanager.force.ng.policy", false),
+    DM_INCREMENT_REP("hive.diskmanager.increment.rep", false),
+    DM_INCREMENT_REP_AUTO("hive.diskmanager.increment.rep.auto", false),
 
     // FLSelector
     FLSELECTOR_WATCH_NONE("flselector.watch.none", null),

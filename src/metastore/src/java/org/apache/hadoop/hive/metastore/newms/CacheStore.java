@@ -45,6 +45,7 @@ public class CacheStore {
   private static boolean initialized = false;
   private static String sha = null;
   private static final Log LOG = LogFactory.getLog(CacheStore.class);
+  private static HiveConf conf = null;
 
   private static ConcurrentHashMap<String, Database> databaseHm = new ConcurrentHashMap<String, Database>();
   private static ConcurrentHashMap<String, PrivilegeBag> privilegeBagHm = new ConcurrentHashMap<String, PrivilegeBag>();
@@ -98,7 +99,8 @@ public class CacheStore {
           sha = jedis.scriptLoad(script);
 
           //每次系统启动时，从redis中读取已经持久化的对象到内存缓存中(SFile和SFileLocation除外)
-          if (!new HiveConf().getBoolVar(ConfVars.NEWMS_IS_GET_ALL_OBJECTS)) {
+          conf = new HiveConf();
+          if (!conf.getBoolVar(ConfVars.NEWMS_IS_GET_ALL_OBJECTS)) {
 	          long start = System.currentTimeMillis();
 	          readAll(ObjectType.DATABASE);
 	          readAll(ObjectType.GLOBALSCHEMA);
@@ -962,13 +964,14 @@ public class CacheStore {
 	}
 
 	public void findFiles(List<SFile> underReplicated, List<SFile> overReplicated, List<SFile> lingering,
+	    List<SFile> incrReplicated,
       long from, long to) throws JedisException, IOException, ClassNotFoundException, MetaException {
 		long start = System.currentTimeMillis();
 		long node_nr = CacheStore.getNodeHm().size();
 		List<SFile> temp = new LinkedList<SFile>();
 		int err = 0;
 
-    if (underReplicated == null || overReplicated == null || lingering == null) {
+    if (underReplicated == null || overReplicated == null || lingering == null || incrReplicated == null) {
       throw new MetaException("Invalid input List<SFile> collection. IS NULL");
     }
 
@@ -1059,7 +1062,7 @@ public class CacheStore {
         lingering.add(m);
       }
       if (m.getStore_status() != MetaStoreConst.MFileStoreStatus.INCREATE) {
-        int offnr = 0, onnr = 0, suspnr = 0;
+        int offnr = 0, onnr = 0, suspnr = 0, increpnr = 0;
 
         for (SFileLocation fl : l) {
           if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE) {
@@ -1068,19 +1071,41 @@ public class CacheStore {
             offnr++;
           } else if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.SUSPECT) {
             suspnr++;
+          } else if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.INCREP) {
+            increpnr++;
           }
         }
         // NOTE: logic is ->
-        // if online nr >= requested nr, we try to remove any offline/suspect SFLs,
-        // otherwise, if online + offline + suspect >= node_nr, try to remove offline SFLs
-        if ((m.getRep_nr() <= onnr && (offnr > 0 || suspnr > 0)) ||
-            (onnr + offnr + suspnr >= node_nr && offnr > 0)) {
+        // if online nr >= requested nr, we try to remove any offline/suspect/increp SFLs,
+        // otherwise, if online + offline + suspect + increp >= node_nr, try to remove offline SFLs.
+        // Only KEEP ONE increp SFL, try to remove other increp SFLs.
+        if ((m.getRep_nr() <= onnr && (offnr > 0 || suspnr > 0 || increpnr > 0)) ||
+            (onnr + offnr + suspnr + increpnr >= node_nr && offnr > 0) ||
+            increpnr > 1) {
           try {
             lingering.add(m);
           } catch (javax.jdo.JDOObjectNotFoundException e) {
             // it means the file slips ...
           	LOG.error(e,e);
           }
+        }
+      }
+      // find incrReplicated files
+      if (m.getStore_status() == MetaStoreConst.MFileStoreStatus.INCREATE) {
+        int onnr = 0, increpnr = 0;
+
+        for (SFileLocation fl : l) {
+          if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE) {
+            onnr++;
+          } else if (fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.INCREP) {
+            increpnr++;
+          }
+        }
+        if (onnr > 0 && increpnr > 0) {
+          incrReplicated.add(m);
+        } else if (conf.getBoolVar(ConfVars.DM_INCREMENT_REP_AUTO) &&
+            onnr > 0 && increpnr == 0) {
+          incrReplicated.add(m);
         }
       }
     }
