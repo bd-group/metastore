@@ -20,6 +20,7 @@ package org.apache.hadoop.hive.ql.parse;
 
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
+import java.security.InvalidParameterException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -834,16 +835,55 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
             ASTNode paras = (ASTNode) part_para.getChild(0);
             for (int i = 0; i < paras.getChildCount(); i++) {//anyalyze partition function params
               ASTNode para_value = (ASTNode) paras.getChild(i);
-              partition.getValues().add(para_value.getText());
+              // 对于'default'的处理
+              // 可以没有default，如果有则要去判断格式
+              String value_o = para_value.getText();
+              try {
+                int num = Integer.valueOf(value_o);
+              } catch (NumberFormatException e) {
+                // TODO: handle exception
+                if(!para_value.getText().equalsIgnoreCase("\"default\"") && !para_value.getText().equalsIgnoreCase("\'default\'"))
+                {
+                  throw new InvalidParameterException("FAILED: the list partition value is invalid!");
+                }
+                value_o = unescapeSQLString(value_o);
+              }
+
+              partition.getValues().add(value_o);
             }
             partition.getPi().getArgs().add(part_name.getText()+":"+partition.getValues());
             break;
           case  HiveParser.TOK_VALUES_LESS:
             String value_i = part_para.getChild(0).getText();
+            if(t == ptempNum-1)
+            {
+              if(!value_i.equals("\"maxvalue\"") && !value_i.equals("\'maxvalue\'"))
+              {
+                throw new InvalidParameterException("FAILED: Need to define a last patition with boundary value maxvalue!");
+              }
+              value_i = unescapeSQLString(value_i);
+            }
+            //zlog.info("-----tianlong-----part_para.getChild(0).getText()=="+part_para.getChild(0).getText());
+            //zlog.info("-----tianlong-----value_i=="+value_i);
             partition.getValues().add(last_part_min_value);
             partition.getValues().add(value_i);
-            last_part_min_value = value_i;
-            partition.getPi().getArgs().add(part_name.getText()+"<"+last_part_min_value);
+
+            // 如果是第一个,不做比较，因为至少有一个分区界限，所以此时value_i不可能为maxvalue
+            if(last_part_min_value.equals("minvalue"))
+            {
+              partition.getPi().getArgs().add(part_name.getText()+":("+last_part_min_value+","+value_i+")");
+              last_part_min_value = value_i;
+            }else if(value_i.equals("maxvalue")){   // 如果为最后一个
+              partition.getPi().getArgs().add(part_name.getText()+":["+last_part_min_value+","+value_i+")");
+              last_part_min_value = value_i;
+            }else{
+              if(Integer.valueOf(last_part_min_value) > Integer.valueOf(value_i))
+              {
+                throw new InvalidParameterException("FAILED: "+part_name.getText()+" partition boundary value is less than the former partition!");
+              }
+              partition.getPi().getArgs().add(part_name.getText()+":["+last_part_min_value+","+value_i+")");
+              last_part_min_value = value_i;
+            }
             break;
           case  HiveParser.TOK_VALUES_LESS_OR_EQUALS:
             String value_b = part_para.getChild(0).getText();
