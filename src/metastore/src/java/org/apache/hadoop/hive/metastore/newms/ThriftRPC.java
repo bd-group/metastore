@@ -773,6 +773,8 @@ public class ThriftRPC extends FacebookBase implements
             sfl.setRep_id(0);
             sfl.setDigest(file.getDigest());
             rs.updateSFileLocation(sfl);
+          } else if (sfl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.INCREP) {
+            // this is an increp SFL, ok, accept it
           } else {
             sflToDel.add(sfl);
             dm.asyncDelSFL(sfl);
@@ -790,6 +792,10 @@ public class ThriftRPC extends FacebookBase implements
             if (sfl.getDevid().equals(devid) && sfl.getLocation().equals(loc)) {
               // this is the master SFL, warn on it
               LOG.warn("Master copy is not in ONLINE state: fid " + file.getFid() + " sfl devid "
+                  + sfl.getDevid() + " loc " + sfl.getLocation() + " state " + sfl.getVisit_status());
+            } else if (sfl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.INCREP) {
+              // this is an increp SFL, ok, accept it
+              LOG.info("Close an INCREP file: fid " + file.getFid() + " sfl devid "
                   + sfl.getDevid() + " loc " + sfl.getLocation() + " state " + sfl.getVisit_status());
             } else {
               dm.asyncDelSFL(sfl);
