@@ -993,7 +993,7 @@ public class CacheStore {
     	      SFile sf = (SFile) this.readObject(ObjectType.SFILE, en.getKey());
     	      if (sf == null) {
     	        LOG.debug("in CacheStore findFiles(), SFile("+ en.getKey() + ") is null, bad...");
-    	      } else if (sf.getStore_status() != MetaStoreConst.MFileStoreStatus.INCREATE) {
+    	      } else {
     	        temp.add(sf);
     	      }
     	    } catch (Exception e) {
