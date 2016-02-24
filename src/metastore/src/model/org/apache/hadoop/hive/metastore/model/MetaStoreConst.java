@@ -55,6 +55,7 @@ public class MetaStoreConst {
     public static final int L4 = 1;
 
     public static final int __TYPE_MASK__ = 0x0f;
+    public static final int __INCREP_FLAG__ = 0x80000000; // ONLY use in rpc:replicate(dtype)
     public static final int __QUOTA_MASK__ = 0xf0;
     public static final int __QUOTA_SHIFT__ = 4;
 
