@@ -722,6 +722,7 @@ public class HiveConf extends Configuration {
     DM_CHECK_OFFLINE_DEL_TIMEOUT("hive.diskmanager.check.offline.del.timeout", 3600 * 1000),
     DM_CHECK_SUSPECT_DEL_TIMEOUT("hive.diskmanager.check.suspect.del.timeout", 30 * 24 * 3600 * 1000),
     DM_CHECK_INACTIVE_NODE_TIMEOUT("hive.diskmanager.check.inactive.node.timeout", 1 * 3600 * 1000),
+    DM_CHECK_INCREP_TIMEOUT("hive.diskmanager.increp.timeout", 5 * 60 * 1000),
     DM_SAFEMODE_ENTER("hive.diskmanager.safemode.enter", (float)0.5),
     DM_SAFEMODE_LEAVE("hive.diskmanager.safemode.leave", (float)0.99),
     DM_APPEND_CMD_MAX("hive.diskmanager.nr.max", 4),
@@ -736,6 +737,7 @@ public class HiveConf extends Configuration {
     DM_FORCE_NG_POLICY("hive.diskmanager.force.ng.policy", false),
     DM_INCREMENT_REP("hive.diskmanager.increment.rep", false),
     DM_INCREMENT_REP_AUTO("hive.diskmanager.increment.rep.auto", false),
+    DM_INCREMENT_REP_CHECK_SIZE("hive.diskmanager.increment.rep.check.size", 10),
 
     // FLSelector
     FLSELECTOR_WATCH_NONE("flselector.watch.none", null),
