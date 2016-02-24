@@ -100,7 +100,8 @@ public class DiskManager {
     public final ConcurrentHashMap<String, Long> toReRep = new ConcurrentHashMap<String, Long>();
     public final Map<String, Long> toUnspc = new ConcurrentHashMap<String, Long>();
     public final Map<String, MigrateEntry> rrmap = new ConcurrentHashMap<String, MigrateEntry>();
-    public final Set<Long> incRepFiles = new HashSet<Long>();
+    public final TreeMap<Long, Long> incRepFiles = new TreeMap<Long, Long>();
+    public Long incRepFid = -1L;
 
     public final ConcurrentLinkedQueue<ReplicateRequest> rrq = new ConcurrentLinkedQueue<ReplicateRequest>();
 
@@ -146,7 +147,7 @@ public class DiskManager {
       @Override
       public String toString() {
         return "fid " + fid + " TO " + DeviceInfo.getTypeStr(dtype) +
-            (((dtype & 0x80000000) != 0) ? " INCREP" : "REP");
+            (((dtype & 0x80000000) != 0) ? " INCREP" : " REP");
       }
     }
 
@@ -1935,6 +1936,7 @@ public class DiskManager {
         suspectDelTimeout = hiveConf.getLongVar(HiveConf.ConfVars.DM_CHECK_SUSPECT_DEL_TIMEOUT);
         inactiveNodeTimeout = hiveConf.getLongVar(HiveConf.ConfVars.DM_CHECK_INACTIVE_NODE_TIMEOUT);
         cleanDSFStatTimeout = hiveConf.getLongVar(HiveConf.ConfVars.DM_DSFSTAT_TIMEOUT);
+        incRepTimeout = hiveConf.getLongVar(HiveConf.ConfVars.DM_CHECK_INCREP_TIMEOUT);
         ff_range = hiveConf.getLongVar(HiveConf.ConfVars.DM_FF_RANGE);
         DiskManager.identify_shared_device = hiveConf.getBoolVar(HiveConf.ConfVars.DM_IDENTIFY_SHARED_DEV);
 
@@ -2817,10 +2819,34 @@ public class DiskManager {
             }
             // BUG-XXX: do NOT replicate open files!
             if (sf.getStore_status() == MetaStoreConst.MFileStoreStatus.INCREATE) {
-              if ((rr.dtype & 0x80000000) != 0) {
-                // this means user want to do increp
-                do_replicate(sf, 1, rr.dtype & MetaStoreConst.MDeviceProp.__TYPE_MASK__, true);
-                LOG.info("Replicate request " + rr + " OK: submitted.");
+              if ((rr.dtype & MetaStoreConst.MDeviceProp.__INCREP_FLAG__) != 0) {
+                // this means user want to do increp,
+                // but we should check if we can issue a new inc replicate request
+                boolean abort = false;
+
+                if (sf.getLocationsSize() > 0) {
+                  for (SFileLocation sfl : sf.getLocations()) {
+                    if (sfl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.INCREP) {
+                      abort = true;
+                      break;
+                    }
+                  }
+                }
+                if (abort) {
+                  LOG.warn("Replicate request " + rr + " BAD: do not submit. (Duplicate INCREP)");
+                  synchronized (incRepFiles) {
+                    if (incRepFiles.get(sf.getFid()) == null) {
+                      incRepFiles.put(sf.getFid(), System.currentTimeMillis() -
+                          HiveConf.getLongVar(hiveConf, ConfVars.DM_CHECK_INCREP_TIMEOUT) / 2);
+                    }
+                  }
+                } else {
+                  do_replicate(sf, 1, rr.dtype & MetaStoreConst.MDeviceProp.__TYPE_MASK__, true);
+                  synchronized (incRepFiles) {
+                    incRepFiles.put(sf.getFid(), System.currentTimeMillis());
+                  }
+                  LOG.info("Replicate request " + rr + " OK: submitted.");
+                }
               } else {
                 LOG.warn("Replicate request " + rr + " BAD: do not submit. (INCREATE)");
               }
@@ -2867,7 +2893,7 @@ public class DiskManager {
             last_limitLeakTs = System.currentTimeMillis();
           }
 
-          // check any under/over/linger files
+          // check any under/over/linger/increp files
           if (last_repTs + repDelCheck < System.currentTimeMillis()) {
             // get the file list
             List<SFile> under = new ArrayList<SFile>();
@@ -2876,13 +2902,16 @@ public class DiskManager {
             List<SFile> increp = new ArrayList<SFile>();
             Map<SFile, Integer> munder = new TreeMap<SFile, Integer>();
             Map<SFile, Integer> mover = new TreeMap<SFile, Integer>();
+            long total_file_nr = 0;
 
-            LOG.info("Check Under/Over Replicated or Lingering Files R{" + ff_start + "," + (ff_start + ff_range) + "} [" + times + "]");
+            LOG.info("Check Under/Over Replicated or Lingering Files R{" + ff_start + "," + (ff_start + ff_range) +
+                "} [" + times + "]");
             synchronized (trs) {
               try {
                 trs.findFiles(under, over, linger, increp, ff_start, ff_start + ff_range);
                 ff_start += ff_range;
-                if (ff_start > trs.countFiles()) {
+                total_file_nr = trs.countFiles();
+                if (ff_start > total_file_nr) {
                   ff_start = 0;
                 }
               } catch (JDOObjectNotFoundException e) {
@@ -2895,7 +2924,10 @@ public class DiskManager {
                 return;
               }
             }
-            LOG.info("OK, get under " + under.size() + ", over " + over.size() + ", linger " + linger.size());
+            LOG.info("OK, get under " + under.size() + ", over " + over.size() +
+                ", increp " + increp.size() + ", linger " + linger.size() +
+                " [" + String.format("%.2f%%", 100.0 * (double)ff_start / total_file_nr) + "]");
+
             // handle under replicated files
             for (SFile f : under) {
               // check whether we should issue a re-replicate command
@@ -3038,6 +3070,35 @@ public class DiskManager {
             }
 
             // check incr replicated files
+            // Step 1: try to check existing increp files
+            for (int cnt = 0; cnt <
+                Math.min(HiveConf.getLongVar(hiveConf, ConfVars.DM_INCREMENT_REP_CHECK_SIZE),
+                    incRepFiles.size()); cnt++) {
+              synchronized (incRepFiles) {
+                Long fid = incRepFiles.higherKey(incRepFid);
+                if (fid == null) {
+                  incRepFid = -1L;
+                } else {
+                  // only check this sfile when we issue last increp request at
+                  // least incRepTimeout/2 miliseconds ago
+                  if (System.currentTimeMillis() - incRepFiles.get(fid) >=
+                      incRepTimeout / 2) {
+                    synchronized (trs) {
+                      try {
+                        SFile f = trs.getSFile(fid);
+                        if (f != null) {
+                          increp.add(f);
+                        }
+                      } catch (Exception e) {
+                        LOG.error(e, e);
+                      }
+                    }
+                  }
+                  incRepFid = fid;
+                }
+              }
+            }
+            // Step 2: iterate increp set to do inc replicate
             for (SFile f : increp) {
               // check if we should INC replicate this SFile
               SFileLocation sfl_target = null;
@@ -3052,10 +3113,25 @@ public class DiskManager {
               }
               if (hiveConf.getBoolVar(ConfVars.DM_INCREMENT_REP)) {
                 if (sfl_target == null) {
-                  // create a new INCREP state filelocation
-                  do_replicate(f, 1, MetaStoreConst.MDeviceProp.__AUTOSELECT_R4__, true);
+                  if (f.getStore_status() == MetaStoreConst.MFileStoreStatus.INCREATE) {
+                    // create a new INCREP state filelocation
+                    do_replicate(f, 1, MetaStoreConst.MDeviceProp.__AUTOSELECT_R4__, true);
+                    // add this sfile to increp list
+                    synchronized (incRepFiles) {
+                      incRepFiles.put(f.getFid(), System.currentTimeMillis());
+                    }
+                  } else {
+                    // non INCREATE state sfile, just ignore it, and remove it from incRepFiles map
+                    synchronized (incRepFiles) {
+                      incRepFiles.remove(f.getFid());
+                    }
+                  }
                 } else if (System.currentTimeMillis() - sfl_target.getUpdate_time() >= incRepTimeout) {
                   do_increplicate(f, sfl_target);
+                  // add this sfile to increp list
+                  synchronized (incRepFiles) {
+                    incRepFiles.put(f.getFid(), System.currentTimeMillis());
+                  }
                 }
               }
             }
@@ -3795,6 +3871,7 @@ public class DiskManager {
       r += "MsgLocalQ : " + MsgServer.getLocalQueueSize() + "\n";
       r += "MsgQ      : " + MsgServer.getQueueSize() + "\n";
       r += "MsgFailedQ: " + MsgServer.getFailedQueueSize() + "\n";
+      r += "IncRepQ   : " + incRepFiles.size() + "\n";
       r += "Rep Limit: closeRepLimit " + closeRepLimit.get() + ", fixRepLimit " + fixRepLimit.get() + "\n";
 
       dmsnr++;
@@ -5191,7 +5268,7 @@ public class DiskManager {
                       repQ.notify();
                     }
                   } else {
-                    LOG.error("[FLP] Drop REP request: fid " + r.file.getFid() + ", faield " + r.failnr);
+                    LOG.error("[FLP] Drop REP request: fid " + r.file.getFid() + ", faield " + r.failnr + ", " + flp);
                   }
                   try {
                     Thread.sleep(500);
@@ -6073,7 +6150,7 @@ public class DiskManager {
                                 // 1. reopen: bad, delete current SFL
                                 // 2. increp: ok, accept current SFL, but do NOT update SFL except update_time
                                 if (newsfl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.INCREP) {
-                                  newsfl.setDigest("INCREP:" + args[3]);
+                                  newsfl.setDigest("INCREP@" + args[3]);
                                   rs.updateSFileLocation(newsfl);
                                 } else {
                                   LOG.warn("Somebody reopen the file " + file.getFid() +
