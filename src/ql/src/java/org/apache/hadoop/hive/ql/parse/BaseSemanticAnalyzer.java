@@ -52,10 +52,12 @@ import org.apache.hadoop.hive.ql.hooks.LineageInfo;
 import org.apache.hadoop.hive.ql.hooks.ReadEntity;
 import org.apache.hadoop.hive.ql.hooks.WriteEntity;
 import org.apache.hadoop.hive.ql.io.IgnoreKeyTextOutputFormat;
+import org.apache.hadoop.hive.ql.io.LuceneTableInputFormat;
+import org.apache.hadoop.hive.ql.io.LuceneTableOutputFormat;
+import org.apache.hadoop.hive.ql.io.LuquetInputFormat;
+import org.apache.hadoop.hive.ql.io.LuquetOutputFormat;
 import org.apache.hadoop.hive.ql.io.RCFileInputFormat;
 import org.apache.hadoop.hive.ql.io.RCFileOutputFormat;
-import org.apache.hadoop.hive.ql.io.TestLuceneInputFormat;
-import org.apache.hadoop.hive.ql.io.TestLuceneOutputFormat;
 import org.apache.hadoop.hive.ql.lib.Node;
 import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
@@ -116,11 +118,15 @@ public abstract class BaseSemanticAnalyzer {
       .getName();
   protected static final String RCFILE_OUTPUT = RCFileOutputFormat.class
       .getName();
-  protected static final String COLUMNAR_SERDE = ColumnarSerDe.class.getName();
-
-  protected static final String LUCENE_INPUT = TestLuceneInputFormat.class
+  protected static final String COLUMNAR_SERDE = ColumnarSerDe.class
       .getName();
-  protected static final String LUCENE_OUTPUT = TestLuceneOutputFormat.class
+  protected static final String LUCENE_INPUT = LuceneTableInputFormat.class
+      .getName();
+  protected static final String LUCENE_OUTPUT = LuceneTableOutputFormat.class
+      .getName();
+  protected static final String LUQUET_INPUT = LuquetInputFormat.class
+      .getName();
+  protected static final String LUQUET_OUTPUT = LuquetOutputFormat.class
       .getName();
 
   class RowFormatParams {
@@ -202,6 +208,17 @@ public abstract class BaseSemanticAnalyzer {
       case HiveParser.TOK_TBLLUCENEFILE:
         inputFormat = LUCENE_INPUT;
         outputFormat = LUCENE_OUTPUT;
+        if (shared.serde == null) {
+          shared.serde = COLUMNAR_SERDE;
+        }
+        storageFormat = true;
+        break;
+      case HiveParser.TOK_TBLLUQUETFILE:
+        inputFormat = LUQUET_INPUT;
+        outputFormat = LUQUET_OUTPUT;
+        if (shared.serde == null) {
+          shared.serde = COLUMNAR_SERDE;
+        }
         storageFormat = true;
         break;
       case HiveParser.TOK_TABLEFILEFORMAT:
@@ -231,9 +248,14 @@ public abstract class BaseSemanticAnalyzer {
           inputFormat = RCFILE_INPUT;
           outputFormat = RCFILE_OUTPUT;
           shared.serde = COLUMNAR_SERDE;
-        } else  if ("RCFile".equalsIgnoreCase(conf.getVar(HiveConf.ConfVars.HIVEDEFAULTFILEFORMAT))) {
+        }else if ("LuceneFile".equalsIgnoreCase(conf.getVar(HiveConf.ConfVars.HIVEDEFAULTFILEFORMAT))) {
           inputFormat = LUCENE_INPUT;
           outputFormat = LUCENE_OUTPUT;
+          shared.serde = COLUMNAR_SERDE;
+        }else if("LuquetFile".equalsIgnoreCase(conf.getVar(HiveConf.ConfVars.HIVEDEFAULTFILEFORMAT))){
+          inputFormat = LUQUET_INPUT;
+          outputFormat = LUQUET_OUTPUT;
+          shared.serde = COLUMNAR_SERDE;
         }else{
           inputFormat = TEXTFILE_INPUT;
           outputFormat = TEXTFILE_OUTPUT;

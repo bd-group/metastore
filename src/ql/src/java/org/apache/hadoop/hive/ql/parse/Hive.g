@@ -176,6 +176,7 @@ TOK_TBLSEQUENCEFILE;
 TOK_TBLTEXTFILE;
 TOK_TBLRCFILE;
 TOK_TBLLUCENEFILE;
+TOK_TBLLUQUETFILE;
 TOK_TABLEFILEFORMAT;
 TOK_FILEFORMAT_GENERIC;
 TOK_OFFLINE;
@@ -387,6 +388,7 @@ TOK_CREATEROLEASSIGNMENT;
 TOK_DROPROLEASSIGNMENT;
 TOK_SHOWROLEASSIGNMENT;
 TOK_ALTERTABLE_FILESPLIT;
+TOK_ALTERTABLE_DROPFILESPLIT;
 TOK_ALTERTABLE_ADD_DISTRIBUTION;
 TOK_ALTERTABLE_DELETE_DISTRIBUTION;
 TOK_SHOWSCHEMAS;
@@ -1114,6 +1116,7 @@ alterTableStatementSuffix
     | alterStatementSuffixAddCol
     | alterStatementSuffixRenameCol
     | alterStatementSuffixFileSplit
+    | alterStatementSuffixDropFileSplit
     | alterStatementSuffixDistribution
     | alterStatementSuffixDropPartitions
     | alterStatementSuffixAddPartitions
@@ -1272,7 +1275,14 @@ alterStatementSuffixFileSplit
     : Identifier fileSplit
     ->^(TOK_ALTERTABLE_FILESPLIT Identifier fileSplit)
     ;
-    
+
+alterStatementSuffixDropFileSplit
+@init { msgs.push("drop file split"); }
+@after { msgs.pop(); }
+    : Identifier KW_DROP KW_FILESPLITS
+    ->^(TOK_ALTERTABLE_DROPFILESPLIT Identifier)
+    ;
+
 alterStatementSuffixDistribution
 @init { msgs.push("alter table Distribution"); }
 @after { msgs.pop(); }
@@ -1566,6 +1576,8 @@ fileFormat
     : KW_SEQUENCEFILE  -> ^(TOK_TBLSEQUENCEFILE)
     | KW_TEXTFILE  -> ^(TOK_TBLTEXTFILE)
     | KW_RCFILE  -> ^(TOK_TBLRCFILE)
+    | KW_LUCENE -> ^(TOK_TBLLUCENEFILE)
+    | KW_LUQUET -> ^(TOK_TBLLUQUETFILE)
     | KW_INPUTFORMAT inFmt=StringLiteral KW_OUTPUTFORMAT outFmt=StringLiteral (KW_INPUTDRIVER inDriver=StringLiteral KW_OUTPUTDRIVER outDriver=StringLiteral)?
       -> ^(TOK_TABLEFILEFORMAT $inFmt $outFmt $inDriver? $outDriver?)
     | genericSpec=Identifier -> ^(TOK_FILEFORMAT_GENERIC $genericSpec)
@@ -2236,7 +2248,8 @@ tableFileFormat
       KW_STORED KW_AS KW_SEQUENCEFILE  -> TOK_TBLSEQUENCEFILE
       | KW_STORED KW_AS KW_TEXTFILE  -> TOK_TBLTEXTFILE
       | KW_STORED KW_AS KW_RCFILE  -> TOK_TBLRCFILE
-      | KW_STORED KW_AS KW_LUCENEFILE -> TOK_TBLLUCENEFILE
+      | KW_STORED KW_AS KW_LUCENE -> TOK_TBLLUCENEFILE
+      | KW_STORED KW_AS KW_LUQUET -> TOK_TBLLUQUETFILE 
       | KW_STORED KW_AS KW_INPUTFORMAT inFmt=StringLiteral KW_OUTPUTFORMAT outFmt=StringLiteral (KW_INPUTDRIVER inDriver=StringLiteral KW_OUTPUTDRIVER outDriver=StringLiteral)?
       -> ^(TOK_TABLEFILEFORMAT $inFmt $outFmt $inDriver? $outDriver?)
       | KW_STORED KW_BY storageHandler=StringLiteral
@@ -3380,6 +3393,7 @@ KW_FIRST: 'FIRST';
 KW_AFTER: 'AFTER';
 KW_DESCRIBE: 'DESCRIBE';
 KW_DROP: 'DROP';
+KW_FILESPLITS: 'FILESPLITS';	
 KW_RENAME: 'RENAME';
 KW_TO: 'TO';
 KW_COMMENT: 'COMMENT';
@@ -3421,7 +3435,8 @@ KW_FILEFORMAT: 'FILEFORMAT';
 KW_SEQUENCEFILE: 'SEQUENCEFILE';
 KW_TEXTFILE: 'TEXTFILE';
 KW_RCFILE: 'RCFILE';
-KW_LUCENEFILE: 'LUCENEFILE';
+KW_LUCENE: 'LUCENE';
+KW_LUQUET: 'LUQUET';
 KW_INPUTFORMAT: 'INPUTFORMAT';
 KW_OUTPUTFORMAT: 'OUTPUTFORMAT';
 KW_INPUTDRIVER: 'INPUTDRIVER';

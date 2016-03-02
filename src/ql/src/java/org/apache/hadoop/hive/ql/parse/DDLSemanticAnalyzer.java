@@ -259,6 +259,9 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
     case HiveParser.TOK_ALTERTABLE_FILESPLIT:
       analyzeAlterTableFileSplit(ast, AlterTableTypes.ALTERFILESPLIT);
       break;
+//    case HiveParser.TOK_ALTERTABLE_DROPFILESPLIT:
+//      analyzeAlterTableDropFileSplit(ast, AlterTableTypes.DROPFILESPLITS);
+//      break;
     case HiveParser.TOK_ALTERTABLE_ADD_DISTRIBUTION:
       analyzeAlterTableDistribution(ast, AlterTableTypes.ADDNODEGROUP);
       break;
@@ -2454,6 +2457,12 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
     case HiveParser.TOK_TBLLUCENEFILE:
       inputFormat = LUCENE_INPUT;
       outputFormat = LUCENE_OUTPUT;
+      serde = COLUMNAR_SERDE;
+      break;
+    case HiveParser.TOK_TBLLUQUETFILE:
+      inputFormat = LUQUET_INPUT;
+      outputFormat = LUQUET_OUTPUT;
+      serde = COLUMNAR_SERDE;
       break;
     case HiveParser.TOK_FILEFORMAT_GENERIC:
       handleGenericFileFormat(child);
@@ -3643,6 +3652,18 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
         alterTblDesc), conf));
 
   }
+
+//  private void analyzeAlterTableDropFileSplit(ASTNode ast, AlterTableTypes alterType) throws SemanticException
+//  {
+//    String tblName = getUnescapedName((ASTNode) ast.getChild(0));
+//    List<FieldSchema> splitCols = new ArrayList<FieldSchema>();
+//    FieldSchema noneFieldSchema = new FieldSchema("none", "none", "");
+//    splitCols.add(noneFieldSchema);
+//
+//    AlterTableDesc alterTblDesc = new AlterTableDesc(splitCols, tblName, alterType);
+//    addInputsOutputsAlterTable(tblName, null, alterTblDesc);
+//    rootTasks.add(TaskFactory.get(new DDLWork(getInputs(), getOutputs(),alterTblDesc), conf));
+//  }
 
   private void analyzeAlterTableDistribution(ASTNode ast, AlterTableTypes alterType)
       throws SemanticException {
