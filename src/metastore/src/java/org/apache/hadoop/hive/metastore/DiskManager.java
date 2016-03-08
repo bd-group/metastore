@@ -5673,6 +5673,8 @@ public class DiskManager {
                   toDelete.remove(l);
                 }
               }
+            } else {
+              toCheck = new TreeSet<SFileLocation>();
             }
 
             if (sb.length() > 4) {
