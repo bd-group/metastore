@@ -5,12 +5,13 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 
+import com.alibaba.rocketmq.client.exception.MQBrokerException;
 import com.alibaba.rocketmq.client.exception.MQClientException;
 import com.alibaba.rocketmq.client.producer.DefaultMQProducer;
 import com.alibaba.rocketmq.client.producer.SendResult;
 import com.alibaba.rocketmq.client.producer.SendStatus;
 import com.alibaba.rocketmq.common.message.Message;
-import com.taobao.metamorphosis.exception.MetaClientException;
+import com.alibaba.rocketmq.remoting.exception.RemotingException;
 
 public class RocketMqMetaProducer {
   private static final Log LOG = LogFactory.getLog(RocketMqMetaProducer.class);
@@ -34,6 +35,7 @@ public class RocketMqMetaProducer {
   private static DefaultMQProducer getDefaultMQProducer(String namesrvAddr) {
     producer = new DefaultMQProducer(producerGroupname);
     producer.setNamesrvAddr(namesrvAddr);
+    producer.setSendMsgTimeout(5 * 1000);
     //producer.setClientIP("host ip");
     producer.setInstanceName(producerGroupname + "-oldms");
     /*
@@ -50,14 +52,14 @@ public class RocketMqMetaProducer {
     return producer;
   }
 
-  public static RocketMqMetaProducer getInstance(String topic) throws MetaClientException {
+  public static RocketMqMetaProducer getInstance(String topic) {
     if (instance == null) {
       instance = new RocketMqMetaProducer(topic);
     }
     return instance;
   }
 
-  public static RocketMqMetaProducer getInstance() throws MetaClientException {
+  public static RocketMqMetaProducer getInstance() {
     if (instance == null) {
       instance = new RocketMqMetaProducer();
     }
@@ -74,31 +76,29 @@ public class RocketMqMetaProducer {
     SendResult sendResult = null;
     Message msg = new Message(topic, pData);
 
-    while (sendResult == null || sendResult.getSendStatus() != SendStatus.SEND_OK) {
-      try {
-        sendResult = producer.send(msg);
-        if (sendResult == null || sendResult.getSendStatus() == SendStatus.FLUSH_DISK_TIMEOUT) {
-          if (sendResult == null) {
-            LOG.error("Send msg failed: null sendResult.");
-          } else {
-            LOG.error("Send msg failed: " + sendResult.getSendStatus());
-          }
-          try {
-            Thread.sleep(200);
-          } catch (Exception e) {
-          }
-          continue;
-        } else {
-          LOG.debug("send to rocketmq use " + (System.currentTimeMillis() - bg) +
-              " ms for " + topic);
-          return true;
-        }
-      } catch (Exception e) {
-        LOG.error(e, e);
-        return false;
-      } finally {
-      }
+    try {
+      sendResult = producer.send(msg);
+    } catch (MQClientException e) {
+      LOG.error(e, e);
+    } catch (RemotingException e) {
+      LOG.error(e, e);
+    } catch (MQBrokerException e) {
+      LOG.error(e, e);
+    } catch (InterruptedException e) {
+      LOG.error(e, e);
     }
-    return false;
+
+    if (sendResult == null || sendResult.getSendStatus() != SendStatus.SEND_OK) {
+      if (sendResult == null) {
+        LOG.error("Send msg failed: null sendResult.");
+      } else {
+        LOG.error("Send msg failed: " + sendResult.getSendStatus());
+      }
+      return false;
+    } else {
+      LOG.debug("send to rocketmq use " + (System.currentTimeMillis() - bg) +
+          " ms for " + topic);
+      return true;
+    }
   }
 }
