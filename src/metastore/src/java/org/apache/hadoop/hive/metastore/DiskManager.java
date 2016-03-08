@@ -101,6 +101,7 @@ public class DiskManager {
     public final Map<String, Long> toUnspc = new ConcurrentHashMap<String, Long>();
     public final Map<String, MigrateEntry> rrmap = new ConcurrentHashMap<String, MigrateEntry>();
     public final TreeMap<Long, Long> incRepFiles = new TreeMap<Long, Long>();
+    public static final ConcurrentHashMap<String, Long> errSFL = new ConcurrentHashMap<String, Long>();
     public Long incRepFid = -1L;
 
     public final ConcurrentLinkedQueue<ReplicateRequest> rrq = new ConcurrentLinkedQueue<ReplicateRequest>();
@@ -512,6 +513,7 @@ public class DiskManager {
         private final int fstatInvalidate = 12 * 3600 * 1000;
         private long drop_rde = 0;
         private long drop_wre = 0;
+        private long total_err = 0;
 
         public void updateFStat(String devid, String location, String tag,
             int rdnr, int wrnr, int ernr, long iolat) {
@@ -540,6 +542,13 @@ public class DiskManager {
               fstat.putIfAbsent(devid + ":" + location + ":" + tag, fs);
             }
           } catch (Exception e) {
+          }
+          if (ernr > 0) {
+            // this update is an ERROR stat, keep it in errSFL map
+            Long curnr = errSFL.putIfAbsent(devid + ":" + location, 1L);
+            if (curnr != null) {
+              errSFL.put(devid + ":" + location, curnr + 1);
+            }
           }
         }
 
@@ -583,6 +592,7 @@ public class DiskManager {
                         } else if (fs[4].equals("ERR")) {
                           // ok, try to update FSTAT
                           updateFStat(fs[2], fs[3], fs[0], 0, 0, 1, 0);
+                          total_err++;
                         }
                       } else {
                         switch (dma.op) {
@@ -599,6 +609,7 @@ public class DiskManager {
                             try {cur = Long.parseLong(fs[1]);} catch (Exception x) {}
                             updateFStat(fs[2], fs[3], fs[0], 0, 0, 1, cur - dma.open);
                             map.remove(dma);
+                            total_err++;
                           }
                           break;
                         }
@@ -615,6 +626,7 @@ public class DiskManager {
                             try {cur = Long.parseLong(fs[1]);} catch (Exception x) {}
                             updateFStat(fs[2], fs[3], fs[0], 0, 0, 1, cur - dma.open);
                             map.remove(dma);
+                            total_err++;
                           }
                           break;
                         }
@@ -750,7 +762,7 @@ public class DiskManager {
             }
           }
 
-          r += "Drop RDE " + drop_rde + ", WRE " + drop_wre + "\n";
+          r += "Drop RDE " + drop_rde + ", WRE " + drop_wre + ", total ERR " + total_err + "\n";
           List<Entry<String, HotResult>> entries = Lists.newArrayList(hist_hot_dev.entrySet());
           Collections.sort(entries, compByNr);
 
@@ -1483,9 +1495,14 @@ public class DiskManager {
     public class NodeInfo {
       public long lastRptTs;
       public List<DeviceInfo> dis;
+      // to do SFL delete on dservice
       public Set<SFileLocation> toDelete;
+      // to do SFL replicate on dservice
       public Set<JSONObject> toRep;
+      // to reply verify request, dservice should delete the verified SFL
       public Set<String> toVerify;
+      // to do SFL verify on dservice
+      public Set<SFileLocation> toCheck;
       public String lastReportStr;
       public long totalReportNr = 0;
       public long totalFileRep = 0;
@@ -1494,6 +1511,7 @@ public class DiskManager {
       public long totalFailRep = 0;
       public long totalVerify = 0;
       public long totalVYR = 0;
+      public long totalCheck = 0;
       public InetAddress address = null;
       public int port = 0;
 
@@ -1515,6 +1533,7 @@ public class DiskManager {
         this.toDelete = Collections.synchronizedSet(new TreeSet<SFileLocation>());
         this.toRep = Collections.synchronizedSet(new TreeSet<JSONObject>());
         this.toVerify = Collections.synchronizedSet(new TreeSet<String>());
+        this.toCheck = Collections.synchronizedSet(new TreeSet<SFileLocation>());
       }
 
       public String getMP(String devid) {
@@ -1897,6 +1916,7 @@ public class DiskManager {
       public long repDelCheck = 60 * 1000;
       public long voidFileCheck = 30 * 60 * 1000;
       public long voidFileTimeout = 12 * 3600 * 1000; // 12 hours
+      public long errSFLCheck = 60 * 1000;
       public long repTimeout = 15 * 60 * 1000;
       public long delTimeout = 5 * 60 * 1000;
       public long rerepTimeout = 30 * 1000;
@@ -1916,6 +1936,7 @@ public class DiskManager {
       private long last_limitTs = System.currentTimeMillis();
       private long last_limitLeakTs = System.currentTimeMillis();
       private long last_cleanDSFStatTs = System.currentTimeMillis();
+      private long last_errSFLCheckTs = System.currentTimeMillis();
 
       private long last_genRpt = System.currentTimeMillis();
 
@@ -2634,7 +2655,8 @@ public class DiskManager {
             sb.append("-1,");
           }
         }
-        long totalReportNr = 0, totalFileRep = 0, totalFileDel = 0, toRepNr = 0, toDeleteNr = 0, avgReportTs = 0, totalVerify = 0, totalFailRep = 0, totalFailDel = 0;
+        long totalReportNr = 0, totalFileRep = 0, totalFileDel = 0, toRepNr = 0, toDeleteNr = 0,
+            avgReportTs = 0, totalVerify = 0, totalFailRep = 0, totalFailDel = 0, totalCheck = 0;
         long qrep = 0, hrep = 0, drep = 0, qdel = 0, hdel = 0, ddel = 0, tver = 0, tvyr = 0;
         List<Long> uptimes = new ArrayList<Long>();
         List<Double> load1 = new ArrayList<Double>();
@@ -2644,6 +2666,7 @@ public class DiskManager {
             totalFileRep += e.getValue().totalFileRep;
             totalFileDel += e.getValue().totalFileDel;
             totalVerify += e.getValue().totalVerify;
+            totalCheck += e.getValue().totalCheck;
             toRepNr += e.getValue().toRep.size();
             toDeleteNr += e.getValue().toDelete.size();
             totalFailRep += e.getValue().totalFailRep;
@@ -3366,6 +3389,38 @@ public class DiskManager {
             last_cleanDSFStatTs = System.currentTimeMillis();
           }
 
+          // issue SFL check cmd by errSFL
+          if (last_errSFLCheckTs + errSFLCheck < System.currentTimeMillis() && errSFL.size() > 0) {
+            LOG.info("Issue SFL digest checking requests for " + errSFL.size() + " SFLs.");
+            HashMap<String, Long> lmap = new HashMap<String, Long>();
+            lmap.putAll(errSFL);
+            errSFL.clear();
+            for (Map.Entry<String, Long> e : lmap.entrySet()) {
+              String[] a = e.getKey().split(":");
+              SFileLocation loc = null;
+              if (a != null && a.length >= 2) {
+                synchronized (trs) {
+                  try {
+                    loc = trs.getSFileLocation(a[0], a[1]);
+                  } catch (Exception e2) {
+                    LOG.error(e2, e2);
+                  }
+                  if (loc != null) {
+                    NodeInfo ni = ndmap.get(loc.getNode_name());
+                    if (ni != null) {
+                      synchronized (ni.toCheck) {
+                        ni.toCheck.add(loc);
+                        LOG.info("----> Add to Node " + loc.getNode_name() + "'s toCheck " + loc.getLocation());
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            lmap.clear();
+            last_errSFLCheckTs = System.currentTimeMillis();
+          }
+
           if (last_genRpt + 60000 <= System.currentTimeMillis()) {
             generateReport();
             last_genRpt = System.currentTimeMillis();
@@ -4066,7 +4121,8 @@ public class DiskManager {
           if (ni.toDelete.size() > 0 || ni.toRep.size() > 0) {
             LOG.error("Might miss entries here ... toDelete {" + ni.toDelete.toString() + "}, toRep {" +
                 ni.toRep.toString() + "}, toVYR {" +
-                ni.toVerify.toString() + "}.");
+                ni.toVerify.toString() + "}, toCheck {" +
+                ni.toCheck.toString() + "}.");
           }
           // update Node status here
           try {
@@ -4080,7 +4136,7 @@ public class DiskManager {
           }
         } else {
           LOG.warn("Inactive node " + node + " with pending operations: toDelete " + ni.toDelete.size() + ", toRep " +
-              ni.toRep.size() + ", toVerify " + ni.toVerify.size());
+              ni.toRep.size() + ", toVerify " + ni.toVerify.size() + ", toCheck " + ni.toCheck.size());
         }
       }
       try {
@@ -5504,6 +5560,7 @@ public class DiskManager {
           try {
           Set<JSONObject> toRep = null;
           Set<SFileLocation> toDelete = null;
+          Set<SFileLocation> toCheck = null;
           NodeInfo ni = null;
 
           // wait a moment
@@ -5523,7 +5580,10 @@ public class DiskManager {
               if (toRep != null && entry.getValue().toRep.size() > 0) {
                 toRep = entry.getValue().toRep;
               }
-              if (toDelete != null || toRep != null) {
+              if (toCheck != null && entry.getValue().toCheck.size() > 0) {
+                toCheck = entry.getValue().toCheck;
+              }
+              if (toDelete != null || toRep != null || toCheck != null) {
                 ni = entry.getValue();
                 break;
               }
@@ -5589,6 +5649,32 @@ public class DiskManager {
               toRep = new TreeSet<JSONObject>();
             }
 
+            if (toCheck != null) {
+              synchronized (toCheck) {
+                Set<SFileLocation> ls = new TreeSet<SFileLocation>();
+                for (SFileLocation loc : toCheck) {
+                  if (nr >= nr_max) {
+                    break;
+                  }
+                  if (ni != null) {
+                    sb.append("+CHK:");
+                    sb.append(loc.getDevid());
+                    sb.append(":");
+                    sb.append(ni.getMP(loc.getDevid()));
+                    sb.append(":");
+                    sb.append(loc.getLocation());
+                    sb.append("\n");
+
+                    ls.add(loc);
+                    nr++;
+                  }
+                }
+                for (SFileLocation l : ls) {
+                  toDelete.remove(l);
+                }
+              }
+            }
+
             if (sb.length() > 4) {
               try {
                 String sendStr = sb.toString();
@@ -5601,7 +5687,7 @@ public class DiskManager {
               }
             }
             // check if we handles all the cmds
-            if (!(toRep.size() > 0 || toDelete.size() > 0)) {
+            if (!(toRep.size() > 0 || toDelete.size() > 0 || toCheck.size() > 0)) {
               break;
             }
           }
@@ -6251,6 +6337,7 @@ public class DiskManager {
                                   if (sfl.getDigest() != null) {
                                     if (sfl.getDigest().equalsIgnoreCase("d41d8cd98f00b204e9800998ecf8427e")) {
                                       // FIXME: target directory is empty? we can safely delete it
+                                      asyncDelSFL(sfl);
                                     }
                                   }
                                 }
