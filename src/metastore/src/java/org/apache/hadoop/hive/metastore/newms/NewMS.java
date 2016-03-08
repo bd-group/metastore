@@ -284,9 +284,10 @@ public class NewMS {
         }
         // if old_with_new, comsumer use oldms topic
         String serverName = InetAddress.getLocalHost().getHostName();
+        String nameSrvAddr = conf.getVar(ConfVars.ROCKETMQ_NAMESRV_ADDRESS);
         LOG.info("Use " + serverName + " as the consumer tag, make sure it's ok.");
         MsgServer.startConsumer(conf.getVar(ConfVars.ZOOKEEPERADDRESS), topic,
-            "newms-" + serverName);
+            "newms-" + serverName, nameSrvAddr);
         // Producer use meta-test topic
         MsgServer.startProducer();
         MsgServer.startLocalConsumer();

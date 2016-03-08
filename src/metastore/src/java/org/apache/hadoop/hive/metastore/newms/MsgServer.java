@@ -41,6 +41,7 @@ import com.taobao.metamorphosis.utils.ZkUtils.ZKConfig;
 public class MsgServer {
 	private static final Log LOG = LogFactory.getLog(MsgServer.class);
 	static Producer producer = null;
+	static RocketMqProducer rmProducer = null;
 	static int times = 3;
 	private static boolean initalized = false;
 	private static HiveConf conf = new HiveConf();
@@ -51,6 +52,9 @@ public class MsgServer {
 	private static ConcurrentLinkedQueue<DDLMsg> failed_queue = new ConcurrentLinkedQueue<DDLMsg>();
 	private static ConcurrentLinkedQueue<DDLMsg> localQueue = new ConcurrentLinkedQueue<DDLMsg>();
 	private static LocalConsumer lc = new LocalConsumer();
+
+	//add for rocketmq
+	private static boolean useRocketMQ = conf.getBoolVar(ConfVars.USE_ROCKETMQ);
 
 	public static boolean isQueueEmpty() {
 		LOG.info("Queue size " + queue.size() + ", failed_queue " + failed_queue.size() +
@@ -70,6 +74,16 @@ public class MsgServer {
 	  return failed_queue.size();
 	}
 
+	private static String getTopic() {
+	  if (producer != null) {
+      return Producer.topic;
+    } else if (rmProducer != null) {
+      return rmProducer.getTopic();
+    } else {
+      return "unknown-topic";
+    }
+	}
+
 	public static void pdSend(DDLMsg msg) {
 	  if (initalized) {
 	    // BUG-XXX: if we are in slave mode, do NOT send message to meta-test?
@@ -77,11 +91,12 @@ public class MsgServer {
 	      queue.add(msg);
 	      send.release();
 	    } else {
-	      LOG.info("SLAVE ignore ddl msg to topic=" + Producer.topic + ":" +
+	      LOG.info("SLAVE ignore ddl msg to topic=" + getTopic() + ":" +
 	          MSGFactory.getMsgData2(msg));
 	    }
 	  }
 	}
+
 	public static void addMsg(DDLMsg msg) {
 		//用来给本地消费
 		int eventid = (int) msg.getEvent_id();
@@ -108,15 +123,31 @@ public class MsgServer {
 		}
 	}
 
-	public static void startConsumer(String zkaddr, String topic, String group) throws Exception
+	public static void startConsumer(String zkaddr, String topic, String group, String nameSrvAddr) throws Exception
 	{
-		Consumer c = new Consumer(zkaddr, topic, group);
+	  Consumer c = null;
+	  RocketMqConsumer rmConsumer = null;
+
+	  if (!useRocketMQ) {
+      c = new Consumer(zkaddr, topic, group);
+    } else {
+      rmConsumer = RocketMqConsumer.getInstance(nameSrvAddr, topic, group);
+    }
 		// Note-XXX: for old2new process, do NOT consume msg, otherwise, message in oldms
 		// will be consumed.
 		if (conf.getBoolVar(ConfVars.NEWMS_CONSUME_MSG)) {
-		  c.consume();
+		  if (!useRocketMQ) {
+		    c.consume();
+	    } else {
+	      rmConsumer.consume();
+	    }
 		}
-		c.startMsgProcessing();
+		if (c != null) {
+      c.startMsgProcessing();
+    }
+		if (rmConsumer != null) {
+      rmConsumer.startMsgProcessing();
+    }
 	}
 
 	public static void startLocalConsumer()
@@ -126,17 +157,23 @@ public class MsgServer {
 
 	private static void initalize() throws MetaClientException {
 //		Producer.config(zkAddr);
-		producer = Producer.getInstance();
-		initalized = true;
-		zkfailed = false;
-
+	  if (!useRocketMQ) {
+	    producer = Producer.getInstance();
+	  } else {
+      rmProducer = RocketMqProducer.getInstance();
+    }
+    initalized = true;
+    zkfailed = false;
 	}
 
 	private static void reconnect() throws MetaClientException {
-//		Producer.config(zkAddr);
-		producer = Producer.getInstance();
-		initalized = true;
-		zkfailed = false;
+	  if (!useRocketMQ) {
+      producer = Producer.getInstance();
+    } else {
+      rmProducer = RocketMqProducer.getInstance();
+    }
+    initalized = true;
+    zkfailed = false;
 	}
 
 	private static boolean sendDDLMsg(DDLMsg msg) {
@@ -162,7 +199,12 @@ public class MsgServer {
 
     boolean success = false;
     try{
-      success = producer.sendMsg(jsonMsg);
+      if (!useRocketMQ) {
+        success = producer.sendMsg(jsonMsg);
+      } else {
+        success = rmProducer.sendMessage(jsonMsg);
+      }
+
     }catch(InterruptedException ie){
       return retrySendMsg(jsonMsg,times-1);
     } catch (MetaClientException e) {
@@ -182,43 +224,41 @@ public class MsgServer {
     }
 		@Override
 		public void run() {
-			 while(true ){
-	        try{
-	          if(queue.isEmpty()){
+			 while (true) {
+	        try {
+	          if (queue.isEmpty()) {
 	            sem.acquire();
-	            if(queue.isEmpty()){
+	            if (queue.isEmpty()) {
 	              continue;
 	            }
 	          }
 
-	          if(zkfailed)
-	          {
-	            try{
+	          if (zkfailed) {
+	            try {
 	              Thread.sleep(1*1000l);
 	              reconnect();
-	            }catch(InterruptedException e)
-	            {
-	            }catch(MetaClientException e){
+	            } catch(InterruptedException e) {
+	            } catch(MetaClientException e){
 	              zkfailed = true;
 	            }
-
 	          }
+
 	          DDLMsg msg = queue.peek();
 	          boolean succ = sendDDLMsg(msg);
-	          if(!succ){
-	            if(!failed_queue.contains(msg)) {
+
+	          if (!succ) {
+	            if (!failed_queue.contains(msg)) {
 	              failed_queue.add(msg);
 	            }
-	          }else{
-
+	          } else {
 	            failed_queue.remove(queue.poll());
-
-	            if(!failed_queue.isEmpty()){
-	              while( !failed_queue.isEmpty()){//retry send faild msg,old msg should send as soon as possible.
-	                DDLMsg retry_msg =failed_queue.peek();
-	                if(!sendDDLMsg(retry_msg)){
+	            if (!failed_queue.isEmpty()) {
+	              while (!failed_queue.isEmpty()) {
+	                //retry send faild msg,old msg should send as soon as possible.
+	                DDLMsg retry_msg = failed_queue.peek();
+	                if (!sendDDLMsg(retry_msg)) {
 	                  break;
-	                }else{
+	                } else {
 	                  failed_queue.poll();
 	                }
 	              }
@@ -228,9 +268,7 @@ public class MsgServer {
 	        	LOG.error(e,e);
 	        }
 	      }
-
 		}
-
 	}
 
 	public static class Producer

@@ -8,6 +8,7 @@ import java.util.concurrent.Semaphore;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.ObjectStore;
 import org.apache.hadoop.hive.metastore.api.FileOperationException;
 import org.apache.hadoop.hive.metastore.api.InvalidObjectException;
@@ -41,6 +42,7 @@ public class MetaMsgServer {
   public static final Log LOG = LogFactory.getLog(ObjectStore.class.getName());
   static String zkAddr = "127.0.0.1:3181";
   static Producer producer =  null;
+  static RocketMqMetaProducer rmProducer = null;
   static int times = 3;
   static MetaMsgServer server = null;
   private static boolean initalized = false;
@@ -48,6 +50,9 @@ public class MetaMsgServer {
   private static boolean zkfailed = false;
   private static long sleepSeconds = 60l;
   static ConcurrentLinkedQueue<DDLMsg> queue = new ConcurrentLinkedQueue<DDLMsg>();
+
+  //add for message queue select
+  private static boolean useRocketMQ = new HiveConf().getBoolVar(ConfVars.USE_ROCKETMQ);
 
   private static ConcurrentLinkedQueue<DDLMsg> failed_queue = new ConcurrentLinkedQueue<DDLMsg>();
 
@@ -62,15 +67,23 @@ public class MetaMsgServer {
 
   private  static void initalize(String topic) throws MetaClientException {
     server = new MetaMsgServer();
-    Producer.config(zkAddr, topic);
-    producer = Producer.getInstance();
+    if (!useRocketMQ) {
+      Producer.config(zkAddr, topic);
+      producer = Producer.getInstance();
+    } else {
+      rmProducer = RocketMqMetaProducer.getInstance(topic);
+    }
     initalized = true;
     zkfailed = false;
   }
 
   private static void reconnect() throws MetaClientException {
-    Producer.config(zkAddr, Producer.topic);
-    producer = Producer.getInstance();
+    if (!useRocketMQ) {
+      Producer.config(zkAddr, Producer.topic);
+      producer = Producer.getInstance();
+    } else {
+      rmProducer = RocketMqMetaProducer.getInstance();
+    }
     initalized = true;
     zkfailed = false;
   }
@@ -176,20 +189,26 @@ public class MetaMsgServer {
     if (!initalized) {
       return true;
     }
-    if(times <= 0){
+    if (times <= 0){
       zkfailed = true;
       return false;
     }
 
     boolean success = false;
-    try{
-      success = producer.sendMsg(jsonMsg);
-    }catch(InterruptedException ie){
+    try {
+      if (!useRocketMQ) {
+        success = producer.sendMsg(jsonMsg);
+      } else {
+        success = rmProducer.sendMessage(jsonMsg);
+      }
+
+
+    } catch(InterruptedException ie){
       LOG.error(ie,ie);
-      return retrySendMsg(jsonMsg,times-1);
+      return retrySendMsg(jsonMsg, times - 1);
     } catch (MetaClientException e) {
       LOG.error(e,e);
-      return retrySendMsg(jsonMsg,times-1);
+      return retrySendMsg(jsonMsg, times - 1);
     }
     // FIXME: BUG-XXX: handle timeout exception here !
     return success;
@@ -201,17 +220,18 @@ public class MetaMsgServer {
     private ThriftHiveMetastore.Client client = null;
     private final HiveConf hiveConf = new HiveConf(HiveMetaTool.class);
     private final ObjectStore ob;
-    final String topic ;
-    final String group ;
+    final String topic;
+    final String group;
+
     public AsyncConsumer(String topic, String group) {
     	this.topic = topic;
     	this.group = group;
     	ob = new ObjectStore();
     	ob.setConf(hiveConf);
     }
-    private ThriftHiveMetastore.Client createNewMSClient() throws TTransportException
-    {
-    	String[] uri =hiveConf.get("newms.rpc.uri").split(":");
+
+    private ThriftHiveMetastore.Client createNewMSClient() throws TTransportException {
+    	String[] uri = hiveConf.get("newms.rpc.uri").split(":");
     	TTransport tt = new TSocket(uri[0], Integer.parseInt(uri[1]));
     	tt.open();
     	TProtocol protocol = new TBinaryProtocol(tt);
