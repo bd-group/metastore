@@ -431,6 +431,7 @@ public class PartitionFactory {
    if(global_sub_pd.getPartitions() != null && !global_sub_pd.getPartitions().isEmpty()){
      return;
    }
+   LOG.info("-----tianlonglong-----in createSubPartition!");
    assert(colList.size() == 2);
    FieldSchema part = colList.get(0);
    FieldSchema subpart = colList.get(1);

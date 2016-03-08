@@ -142,6 +142,7 @@ TOK_TABLE_PARTITION;
 TOK_ALTERTABLE_FILEFORMAT;
 TOK_ALTERTABLE_LOCATION;
 TOK_ALTERTABLE_PROPERTIES;
+TOK_ALTERTABLE_DROP_PROPERTIES;
 TOK_ALTERTABLE_CHANGECOL_AFTER_POSITION;
 TOK_ALTERINDEX_REBUILD;
 TOK_ALTERINDEX_PROPERTIES;
@@ -174,6 +175,8 @@ TOK_TABLEROWFORMATLINES;
 TOK_TBLSEQUENCEFILE;
 TOK_TBLTEXTFILE;
 TOK_TBLRCFILE;
+TOK_TBLLUCENEFILE;
+TOK_TBLLUQUETFILE;
 TOK_TABLEFILEFORMAT;
 TOK_FILEFORMAT_GENERIC;
 TOK_OFFLINE;
@@ -306,7 +309,9 @@ TOK_SUBPARTITION;
 TOK_STR_OR_NUM_OR_FUNC;
 TOK_ALTER_DW;
 TOK_VALUES_LESS;
+TOK_VALUES_LESS_OR_EQUALS;
 TOK_VALUES_GREATER;
+TOK_VALUES_GREATER_OR_EQUALS;
 TOK_VALUES;
 
 TOK_ADDNODE;
@@ -367,6 +372,7 @@ TOK_CREATENODEASSIGNMENT;
 TOK_DROPNODEASSIGNMENT;
 TOK_ALTERSCHEMA_RENAME;
 TOK_ALTERSCHEMA_ADDCOLS;
+TOK_ALTERSCHEMA_DELCOL;
 TOK_ALTERSCHEMA_REPLACECOLS;
 TOK_ALTERSCHEMA_RENAMECOL;
 TOK_ALTERSCHEMA_CHANGECOL_AFTER_POSITION;
@@ -382,6 +388,7 @@ TOK_CREATEROLEASSIGNMENT;
 TOK_DROPROLEASSIGNMENT;
 TOK_SHOWROLEASSIGNMENT;
 TOK_ALTERTABLE_FILESPLIT;
+TOK_ALTERTABLE_DROPFILESPLIT;
 TOK_ALTERTABLE_ADD_DISTRIBUTION;
 TOK_ALTERTABLE_DELETE_DISTRIBUTION;
 TOK_SHOWSCHEMAS;
@@ -956,18 +963,18 @@ createTableStatement
          
         KW_CREATE (ext=KW_EXTERNAL)? KW_TABLE ifNotExists? name=tableName
       (  like=KW_LIKE (KW_TABLE likeTabName=tableName |KW_SCHEMA likeName=schemaName KW_TO dbName=Identifier)
-         tableComment?  fileSplit? tablePartition?  tableDistribution?
+         tableComment?  fileSplit? tablePartition?  tableDistribution?  tableFileFormat? tableLocation? tablePropertiesPrefixed?
        | (LPAREN columnNameTypeList RPAREN)?
          tableComment?
          fileSplit?
          tablePartition?
-         tableBuckets?
-         tableSkewed?
-         tableRowFormat?
+         tableDistribution?
          tableFileFormat?
          tableLocation?
          tablePropertiesPrefixed?
-         tableDistribution?
+         tableBuckets?
+         tableSkewed?
+         tableRowFormat?
          (KW_AS selectStatement)?
       )
     -> ^(TOK_CREATETABLE $name $ext? ifNotExists?
@@ -1096,6 +1103,7 @@ alterSchemaStatementSuffix
 @after { msgs.pop(); }
     : alterSchemaStatementSuffixRename
     | alterSchemaStatementSuffixAddCol
+    | alterSchemaStatementSuffixDelCol
     | alterSchemaStatementSuffixRenameCol
     | alterSchemaStatementSuffixProperties
     |alterSchemaStatementChangeColPosition
@@ -1108,6 +1116,7 @@ alterTableStatementSuffix
     | alterStatementSuffixAddCol
     | alterStatementSuffixRenameCol
     | alterStatementSuffixFileSplit
+    | alterStatementSuffixDropFileSplit
     | alterStatementSuffixDistribution
     | alterStatementSuffixDropPartitions
     | alterStatementSuffixAddPartitions
@@ -1117,6 +1126,7 @@ alterTableStatementSuffix
     | alterStatementSuffixArchive
     | alterStatementSuffixUnArchive
     | alterStatementSuffixProperties
+    | alterStatementSuffixDropProperties
     | alterTblPartitionStatement
     | alterStatementSuffixClusterbySortby
     | alterStatementSuffixSkewedby
@@ -1253,14 +1263,26 @@ alterSchemaStatementSuffixAddCol
     -> {$add != null}? ^(TOK_ALTERSCHEMA_ADDCOLS Identifier columnNameTypeList)
     ->                 ^(TOK_ALTERSCHEMA_REPLACECOLS Identifier columnNameTypeList)
     ;
-    
+alterSchemaStatementSuffixDelCol
+@init{ msgs.push("delete Schema column statement"); }
+@after { msgs.pop(); }
+    : Identifier KW_DELETE KW_COLUMN LPAREN columnNameTypeList  RPAREN
+    -> ^(TOK_ALTERSCHEMA_DELCOL  Identifier columnNameTypeList )
+    ;
 alterStatementSuffixFileSplit
 @init { msgs.push("alter file split"); }
 @after { msgs.pop(); }
     : Identifier fileSplit
     ->^(TOK_ALTERTABLE_FILESPLIT Identifier fileSplit)
     ;
-    
+
+alterStatementSuffixDropFileSplit
+@init { msgs.push("drop file split"); }
+@after { msgs.pop(); }
+    : Identifier KW_DROP KW_FILESPLITS
+    ->^(TOK_ALTERTABLE_DROPFILESPLIT Identifier)
+    ;
+
 alterStatementSuffixDistribution
 @init { msgs.push("alter table Distribution"); }
 @after { msgs.pop(); }
@@ -1388,6 +1410,14 @@ alterStatementSuffixProperties
     : name=Identifier KW_SET KW_TBLPROPERTIES tableProperties
     -> ^(TOK_ALTERTABLE_PROPERTIES $name tableProperties)
     ;
+    
+alterStatementSuffixDropProperties
+@init { msgs.push("drop properties statemetn"); }
+@after { msgs.pop(); } 
+    :name=Identifier KW_DROP KW_TBLPROPERTIES tableProperties
+    -> ^(TOK_ALTERTABLE_DROP_PROPERTIES $name tableProperties)
+    ;
+    
 alterSchemaStatementSuffixProperties
 @init { msgs.push("alter properties statement"); }
 @after { msgs.pop(); }
@@ -1546,6 +1576,8 @@ fileFormat
     : KW_SEQUENCEFILE  -> ^(TOK_TBLSEQUENCEFILE)
     | KW_TEXTFILE  -> ^(TOK_TBLTEXTFILE)
     | KW_RCFILE  -> ^(TOK_TBLRCFILE)
+    | KW_LUCENE -> ^(TOK_TBLLUCENEFILE)
+    | KW_LUQUET -> ^(TOK_TBLLUQUETFILE)
     | KW_INPUTFORMAT inFmt=StringLiteral KW_OUTPUTFORMAT outFmt=StringLiteral (KW_INPUTDRIVER inDriver=StringLiteral KW_OUTPUTDRIVER outDriver=StringLiteral)?
       -> ^(TOK_TABLEFILEFORMAT $inFmt $outFmt $inDriver? $outDriver?)
     | genericSpec=Identifier -> ^(TOK_FILEFORMAT_GENERIC $genericSpec)
@@ -1897,11 +1929,11 @@ fileSplit
 @init { msgs.push("file split specification"); }
 @after { msgs.pop(); }
     : KW_SPLITED KW_BY splitParamList=partitionParamList
-    fileSubSplit?
     splitTemplate?
-    -> ^(TOK_SPLITED_BY $splitParamList
     fileSubSplit?
-    splitTemplate?)
+    -> ^(TOK_SPLITED_BY $splitParamList
+    splitTemplate?
+    fileSubSplit?)
     ;
     
     
@@ -1993,8 +2025,12 @@ partitionValuesExper
 @after { msgs.pop(); }
     :KW_VALUES  KW_LESS KW_THAN LPAREN value=stringOrNumOrFunc RPAREN 
     -> ^(TOK_VALUES_LESS  $value )
+    |KW_VALUES  KW_LESS  KW_EQUALS LPAREN value=stringOrNumOrFunc RPAREN
+    -> ^(TOK_VALUES_LESS_OR_EQUALS $value) 
     |KW_VALUES  KW_GREATER KW_THAN LPAREN value=stringOrNumOrFunc RPAREN 
      -> ^(TOK_VALUES_GREATER  $value )
+    |KW_VALUES  KW_GREATER  KW_EQUALS LPAREN value=stringOrNumOrFunc RPAREN
+    -> ^(TOK_VALUES_GREATER_OR_EQUALS $value) 
     | KW_VALUES LPAREN valueList=stringOrNumOrFuncList RPAREN
      -> ^(TOK_VALUES   $valueList )
     ;
@@ -2212,6 +2248,8 @@ tableFileFormat
       KW_STORED KW_AS KW_SEQUENCEFILE  -> TOK_TBLSEQUENCEFILE
       | KW_STORED KW_AS KW_TEXTFILE  -> TOK_TBLTEXTFILE
       | KW_STORED KW_AS KW_RCFILE  -> TOK_TBLRCFILE
+      | KW_STORED KW_AS KW_LUCENE -> TOK_TBLLUCENEFILE
+      | KW_STORED KW_AS KW_LUQUET -> TOK_TBLLUQUETFILE 
       | KW_STORED KW_AS KW_INPUTFORMAT inFmt=StringLiteral KW_OUTPUTFORMAT outFmt=StringLiteral (KW_INPUTDRIVER inDriver=StringLiteral KW_OUTPUTDRIVER outDriver=StringLiteral)?
       -> ^(TOK_TABLEFILEFORMAT $inFmt $outFmt $inDriver? $outDriver?)
       | KW_STORED KW_BY storageHandler=StringLiteral
@@ -3355,6 +3393,7 @@ KW_FIRST: 'FIRST';
 KW_AFTER: 'AFTER';
 KW_DESCRIBE: 'DESCRIBE';
 KW_DROP: 'DROP';
+KW_FILESPLITS: 'FILESPLITS';	
 KW_RENAME: 'RENAME';
 KW_TO: 'TO';
 KW_COMMENT: 'COMMENT';
@@ -3396,6 +3435,8 @@ KW_FILEFORMAT: 'FILEFORMAT';
 KW_SEQUENCEFILE: 'SEQUENCEFILE';
 KW_TEXTFILE: 'TEXTFILE';
 KW_RCFILE: 'RCFILE';
+KW_LUCENE: 'LUCENE';
+KW_LUQUET: 'LUQUET';
 KW_INPUTFORMAT: 'INPUTFORMAT';
 KW_OUTPUTFORMAT: 'OUTPUTFORMAT';
 KW_INPUTDRIVER: 'INPUTDRIVER';
@@ -3473,7 +3514,6 @@ KW_WHILE: 'WHILE';
 KW_READ: 'READ';
 KW_READS: 'READS';
 KW_PURGE: 'PURGE';
-KW_RANGE: 'RANGE';
 KW_ANALYZE: 'ANALYZE';
 KW_BEFORE: 'BEFORE';
 KW_BETWEEN: 'BETWEEN';
@@ -3520,6 +3560,7 @@ KW_SUBPARTITIONED: 'SUBPARTITIONED';
 KW_SUBPARTITION: 'SUBPARTITION';
 KW_LESS:'LESS';
 KW_GREATER:'GREATER';
+KW_EQUALS:'EQUALS';	
 KW_THAN:'THAN';
 KW_DW:'DATAWAREHOUSE';
 KW_DIRECT:'DIRECT';

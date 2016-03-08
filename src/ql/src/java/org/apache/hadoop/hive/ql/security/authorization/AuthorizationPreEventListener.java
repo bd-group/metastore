@@ -82,6 +82,7 @@ public class AuthorizationPreEventListener extends MetaStorePreEventListener {
     ms2hive.put(MSOperation.ALTERTABLE_ADDPARTS, HiveOperation.ALTERTABLE_ADDPARTS);
     ms2hive.put(MSOperation.ALTERTABLE_DROPPARTS, HiveOperation.ALTERTABLE_DROPPARTS);
     ms2hive.put(MSOperation.ALTERTABLE_PROPERTIES, HiveOperation.ALTERTABLE_PROPERTIES);
+    ms2hive.put(MSOperation.ALTERTABLE_DROP_PROPERTIES, HiveOperation.ALTERTABLE_DROP_PROPERTIES);
     ms2hive.put(MSOperation.ALTERTABLE_RENAME, HiveOperation.ALTERTABLE_RENAME);
     ms2hive.put(MSOperation.ALTERTABLE_RENAMECOL, HiveOperation.ALTERTABLE_RENAMECOL);
     ms2hive.put(MSOperation.ALTERTABLE_RENAMEPART, HiveOperation.ALTERTABLE_RENAMEPART);

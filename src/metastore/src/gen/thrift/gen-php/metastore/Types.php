@@ -133,6 +133,7 @@ final class MSOperation {
   const ALTERINDEX_PROPS = 43;
   const ALTERDATABASE = 44;
   const DESCDATABASE = 45;
+  const ALTERTABLE_DROP_PROPERTIES = 46;
   static public $__names = array(
     1 => 'EXPLAIN',
     2 => 'CREATEDATABASE',
@@ -179,6 +180,7 @@ final class MSOperation {
     43 => 'ALTERINDEX_PROPS',
     44 => 'ALTERDATABASE',
     45 => 'DESCDATABASE',
+    46 => 'ALTERTABLE_DROP_PROPERTIES',
   );
 }
 

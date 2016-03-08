@@ -56,7 +56,8 @@ public enum MSOperation implements org.apache.thrift.TEnum {
   QUERY(42),
   ALTERINDEX_PROPS(43),
   ALTERDATABASE(44),
-  DESCDATABASE(45);
+  DESCDATABASE(45),
+  ALTERTABLE_DROP_PROPERTIES(46);
 
   private final int value;
 
@@ -167,6 +168,8 @@ public enum MSOperation implements org.apache.thrift.TEnum {
         return ALTERDATABASE;
       case 45:
         return DESCDATABASE;
+      case 46:
+        return ALTERTABLE_DROP_PROPERTIES;
       default:
         return null;
     }

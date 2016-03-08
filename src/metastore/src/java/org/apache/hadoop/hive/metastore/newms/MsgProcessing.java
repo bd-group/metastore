@@ -258,13 +258,14 @@ public class MsgProcessing {
 		    String oldTableName = (String) msg.getMsg_data().get("old_table_name");
 		    String oldKey = dbName + "." + oldTableName;
 		    String newKey = dbName + "." + tableName;
+		    /*
 		    if(CacheStore.getTableHm().remove(oldKey) != null){
 		      cs.removeObject(ObjectType.TABLE, oldKey);
 		    }
+		    */
+		    cs.removeObject(ObjectType.TABLE, oldKey);
 		    Table tbl = client.getTable(dbName, tableName);
-		    TableImage ti = TableImage.generateTableImage(tbl);
-		    CacheStore.getTableHm().put(newKey, tbl);
-		    cs.writeObject(ObjectType.TABLE, newKey, ti, false);
+		    cs.writeObject(ObjectType.TABLE, newKey, tbl, false);
 		    break;
 		  }
 		  case MSGType.MSG_NEW_TALBE:
@@ -281,6 +282,7 @@ public class MsgProcessing {
 		    String tableName = (String) msg.getMsg_data().get("table_name");
 		    String key = dbName + "." + tableName;
 		    try {
+		      cs.removeObject(ObjectType.TABLE, key);
 		      Table tbl = client.getTable(dbName, tableName);
 		      cs.writeObject(ObjectType.TABLE, key, tbl, false);
 		    } catch (NoSuchObjectException e) {
@@ -452,6 +454,7 @@ public class MsgProcessing {
 		  case MSGType.MSG_MODIFY_SCHEMA_ADD_COL:
 		  case MSGType.MSG_MODIFY_SCHEMA_ALT_COL_NAME:
 		  case MSGType.MSG_MODIFY_SCHEMA_ALT_COL_TYPE:
+		  case MSGType.MSG_MODIFY_SCHEMA_ALT_COL_COMMENT:
 		  case MSGType.MSG_MODIFY_SCHEMA_PARAM:
 		  {
 		    String schema_name = (String)msg.getMsg_data().get("schema_name");
@@ -472,8 +475,9 @@ public class MsgProcessing {
 		    GlobalSchema gs = CacheStore.getGlobalSchemaHm().get(old_schema_name);
 		    if(gs != null)
 		    {
+		      GlobalSchema ngs = client.getSchemaByName(schema_name);
 		      cs.removeObject(ObjectType.GLOBALSCHEMA, old_schema_name);
-		      cs.writeObject(ObjectType.GLOBALSCHEMA, schema_name, gs, false);
+		      cs.writeObject(ObjectType.GLOBALSCHEMA, schema_name, ngs, false);
 		    }
 		    else{
 		      try{

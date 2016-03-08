@@ -38,6 +38,7 @@ public class CreateTableLikeSchemaDesc extends DDLDesc implements Serializable {
   String defaultOutputFormat;
   String defaultSerName;
   Map<String, String> defaultSerdeProps;
+  Map<String, String> tblProps;
   String location;
   boolean ifNotExists;
   String likeTableName;
@@ -65,7 +66,23 @@ public class CreateTableLikeSchemaDesc extends DDLDesc implements Serializable {
     this.likeTableName = likeTableName;
   }
 
-
+  public CreateTableLikeSchemaDesc(String dbName,String tableName, boolean isExternal,List<FieldSchema> partCols,
+      String defaultInputFormat, String defaultOutputFormat, String location,
+      String defaultSerName, Map<String, String> defaultSerdeProps, boolean ifNotExists,
+      String likeTableName,Map<String, String> tblProps) {
+    this.dbName = dbName;
+    this.tableName = tableName;
+    this.isExternal = isExternal;
+    this.setPartCols(partCols);
+    this.defaultInputFormat=defaultInputFormat;
+    this.defaultOutputFormat=defaultOutputFormat;
+    this.defaultSerName=defaultSerName;
+    this.defaultSerdeProps=defaultSerdeProps;
+    this.location = location;
+    this.ifNotExists = ifNotExists;
+    this.likeTableName = likeTableName;
+    this.tblProps = tblProps;
+  }
 
   public String getDbName() {
     return dbName;
@@ -118,6 +135,14 @@ public class CreateTableLikeSchemaDesc extends DDLDesc implements Serializable {
 
   public void setLocation(String location) {
     this.location = location;
+  }
+  @Explain(displayName = "tblproperties")
+  public Map<String, String> getTblProps() {
+    return tblProps;
+  }
+
+  public void setTblProps(Map<String, String> tblProps) {
+    this.tblProps = tblProps;
   }
 
   @Explain(displayName = "isExternal")

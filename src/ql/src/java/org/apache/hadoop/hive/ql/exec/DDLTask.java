@@ -716,6 +716,7 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
 
   private int crtTblLikeSchemaDesc(Hive db, CreateTableLikeSchemaDesc crtTblLikeSchemaDesc) throws HiveException {
     GlobalSchema schema = db.getSchema(crtTblLikeSchemaDesc.getLikeTableName(),false);
+    LOG.info("-----zhuqihan-----crtTblLikeSchemaDesc");
     Table tbl;
     if (schema.getTableType() == TableType.VIRTUAL_VIEW) {
       String targetTableName = crtTblLikeSchemaDesc.getTableName();
@@ -764,6 +765,7 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
       tbl.setTableName(crtTblLikeSchemaDesc.getTableName());
 
       tbl.setFields(schema.getCols());
+
       tbl.setPartCols(crtTblLikeSchemaDesc.getPartCols());
       if(crtTblLikeSchemaDesc.getNodeGroupNames() != null
           && !crtTblLikeSchemaDesc.getNodeGroupNames().isEmpty()) {
@@ -778,11 +780,24 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
         tbl.setPartCols(crtTblLikeSchemaDesc.getPartCols());
       }
 
+
+
       if (crtTblLikeSchemaDesc.getLocation() != null) {
+        //LOG.info("-----tianlong-----"+crtTblLikeSchemaDesc.getLocation());
         tbl.setDataLocation(new Path(crtTblLikeSchemaDesc.getLocation()).toUri());
       } else {
+        //LOG.info("-----tianlong-----"+crtTblLikeSchemaDesc.getLocation());
         tbl.unsetDataLocation();
       }
+
+      // set inputformat and outputformat
+      tbl.setInputFormatClass(crtTblLikeSchemaDesc.getDefaultInputFormat());
+      tbl.setOutputFormatClass(crtTblLikeSchemaDesc.getDefaultOutputFormat());
+
+      tbl.getTTable().getSd().setInputFormat(
+          tbl.getInputFormatClass().getName());
+      tbl.getTTable().getSd().setOutputFormat(
+          tbl.getOutputFormatClass().getName());
 
       Map<String, String> params = tbl.getParameters();
       // We should copy only those table parameters that are specified in the config.
@@ -793,6 +808,23 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
       } else {
         params.clear();
       }
+
+      if(crtTblLikeSchemaDesc.getTblProps() != null
+          && !crtTblLikeSchemaDesc.getTblProps().isEmpty()) {
+        for(String proname: crtTblLikeSchemaDesc.getTblProps().keySet()){
+          String provalue = crtTblLikeSchemaDesc.getTblProps().get(proname);
+          tbl.getParameters().put(proname,provalue);
+        }
+      }
+      // 根据scheme建表的时候，在table properties中保存@name--->id的对应关系,同时保存一个计数器#idCounter，id从1开始累加
+      int id = 0;
+      for(FieldSchema col : schema.getCols())
+      {
+        id++;
+        //LOG.info("-----tianlong-----col.getName()=="+col.getName());
+        tbl.getParameters().put("@"+col.getName(),""+id);
+      }
+      tbl.getParameters().put("#idCounter", ""+id);
 
       if (crtTblLikeSchemaDesc.isExternal()) {
         tbl.setProperty("EXTERNAL", "TRUE");
@@ -889,6 +921,7 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
     LOG.info("before createSchema");
 
     // create the table
+
     boolean success = db.createSchema(schema.getTschema());
     LOG.info("after createSchema");
     if(success) {
@@ -3794,6 +3827,7 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
         LOG.info("---zjw describeTable:getFieldsFromDeserializer " + tbl.getTableName());
         cols = Hive.getFieldsFromDeserializer(colPath, tbl.getDeserializer());
       }
+
       for(FieldSchema col :cols){
         LOG.info("---zjw --col:"+col.getName() +"--"+col.getType());
       }
@@ -3927,24 +3961,54 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
         tbl.getTTable().getSd().setCols(newCols);
       } else {
         // make sure the columns does not already exist
-        Iterator<FieldSchema> iterNewCols = newCols.iterator();
-        while (iterNewCols.hasNext()) {
-          FieldSchema newCol = iterNewCols.next();
-          String newColName = newCol.getName();
-          Iterator<FieldSchema> iterOldCols = oldCols.iterator();
-          while (iterOldCols.hasNext()) {
-            String oldColName = iterOldCols.next().getName();
-            if (oldColName.equalsIgnoreCase(newColName)) {
-              formatter.consoleError(console,
-                                     "Column '" + newColName + "' exists",
-                                     formatter.CONFLICT);
-              LOG.info("=======================3 return 1;");
-              return 1;
+
+        // 先去判断是否存在#idCounter，如果没有则认为是升级之前的数据，不做id处理
+        if(tbl.getTTable().getParameters().get("#idCounter")!=null)
+        {
+          int idCounter = Integer.valueOf(tbl.getTTable().getParameters().get("#idCounter"));
+          LOG.info("-----tianlong-----idCounter=="+idCounter);
+          Iterator<FieldSchema> iterNewCols = newCols.iterator();
+          while (iterNewCols.hasNext()) {
+            FieldSchema newCol = iterNewCols.next();
+            String newColName = newCol.getName();
+            Iterator<FieldSchema> iterOldCols = oldCols.iterator();
+            while (iterOldCols.hasNext()) {
+              String oldColName = iterOldCols.next().getName();
+              if (oldColName.equalsIgnoreCase(newColName)) {
+                formatter.consoleError(console,
+                                       "Column '" + newColName + "' exists",
+                                       formatter.CONFLICT);
+                LOG.info("=======================3 return 1;");
+                return 1;
+              }
             }
+            idCounter++;
+            tbl.getTTable().getParameters().put("@"+newColName, ""+idCounter);
+            oldCols.add(newCol);
           }
-          oldCols.add(newCol);
+          tbl.getTTable().getParameters().put("#idCounter", ""+idCounter);
+          tbl.getTTable().getSd().setCols(oldCols);
+        }else {
+          Iterator<FieldSchema> iterNewCols = newCols.iterator();
+          while (iterNewCols.hasNext()) {
+            FieldSchema newCol = iterNewCols.next();
+            String newColName = newCol.getName();
+            Iterator<FieldSchema> iterOldCols = oldCols.iterator();
+            while (iterOldCols.hasNext()) {
+              String oldColName = iterOldCols.next().getName();
+              if (oldColName.equalsIgnoreCase(newColName)) {
+                formatter.consoleError(console,
+                                       "Column '" + newColName + "' exists",
+                                       formatter.CONFLICT);
+                LOG.info("=======================3 return 1;");
+                return 1;
+              }
+            }
+            oldCols.add(newCol);
+          }
+          tbl.getTTable().getSd().setCols(oldCols);
         }
-        tbl.getTTable().getSd().setCols(oldCols);
+
       }
     } else if (alterTbl.getOp() == AlterTableDesc.AlterTableTypes.ADDNODEGROUP) {
       List<String> newNgNames = alterTbl.getNodeGroupNames();
@@ -3976,6 +4040,7 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
         position = 0;
       }
 
+
       int i = 1;
       while (iterOldCols.hasNext()) {
         FieldSchema col = iterOldCols.next();
@@ -3991,6 +4056,7 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
           if (type != null && !type.trim().equals("")) {
             col.setType(type);
           }
+
           if (comment != null) {
             col.setComment(comment);
           }
@@ -3998,6 +4064,16 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
           if (first || (afterCol != null && !afterCol.trim().equals(""))) {
             column = col;
             continue;
+          }
+
+          // rename的时候先去判断是否有#idCounter这个参数值，如果没有则不处理id
+          if(tbl.getTTable().getParameters().get("#idCounter")!=null)
+          {
+            int oldid = Integer.valueOf(tbl.getTTable().getParameters().get("@"+oldColName));
+            LOG.info("-----tianlong----- name and id "+oldColName+" "+oldid);
+            tbl.getTTable().getParameters().remove("@"+oldColName);
+            tbl.getTTable().getParameters().put("@"+newName, ""+oldid);
+
           }
         }
 
@@ -4049,10 +4125,63 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
                                formatter.ERROR);
         return 1;
       }
-      tbl.getTTable().getSd().setCols(alterTbl.getNewCols());
+
+      if(tbl.getTTable().getParameters().get("#idCounter")!=null)
+      {
+        // 更新table properties
+        List<String> oldcols = new ArrayList<String>();
+        Iterator<FieldSchema> oldIterator = tbl.getTTable().getSd().getCols().iterator();
+        while(oldIterator.hasNext())
+        {
+          oldcols.add(oldIterator.next().getName());
+        }
+
+        List<String> newcols = new ArrayList<String>();
+        Iterator<FieldSchema> newIterator = alterTbl.getNewCols().iterator();
+        while(newIterator.hasNext())
+        {
+          newcols.add(newIterator.next().getName());
+        }
+
+        // old-new remove
+        List<String> tmpoldcols = new ArrayList<String>();
+        tmpoldcols.addAll(oldcols);
+        List<String> tmpnewcols = new ArrayList<String>();
+        tmpnewcols.addAll(newcols);
+        tmpoldcols.removeAll(tmpnewcols);
+        Iterator<String> tmpoldIterator = tmpoldcols.iterator();
+        while(tmpoldIterator.hasNext())
+        {
+          tbl.getTTable().getParameters().remove("@"+tmpoldIterator.next());
+        }
+
+        // new-old addall
+        int idCounter = Integer.valueOf(tbl.getTTable().getParameters().get("#idCounter"));
+        tmpoldcols.clear();
+        tmpoldcols.addAll(oldcols);
+        tmpnewcols.clear();
+        tmpnewcols.addAll(newcols);
+        tmpnewcols.removeAll(tmpoldcols);
+        Iterator<String> tmpnewIterator = tmpnewcols.iterator();
+        while(tmpnewIterator.hasNext())
+        {
+          idCounter++;
+          tbl.getTTable().getParameters().put("@"+tmpnewIterator.next(), ""+idCounter);
+        }
+
+        tbl.getTTable().getParameters().put("#idCounter", ""+idCounter);
+        tbl.getTTable().getSd().setCols(alterTbl.getNewCols());
+      }else {
+        tbl.getTTable().getSd().setCols(alterTbl.getNewCols());
+      }
     } else if (alterTbl.getOp() == AlterTableDesc.AlterTableTypes.ADDPROPS) {
       tbl.getTTable().getParameters().putAll(alterTbl.getProps());
-    } else if (alterTbl.getOp() == AlterTableDesc.AlterTableTypes.ADDSERDEPROPS) {
+    }else if (alterTbl.getOp() == AlterTableDesc.AlterTableTypes.DROPPROPS){
+      for(Map.Entry<String, String> entry : alterTbl.getProps().entrySet())
+      {
+        tbl.getTTable().getParameters().remove(entry.getKey());
+      }
+    }else if (alterTbl.getOp() == AlterTableDesc.AlterTableTypes.ADDSERDEPROPS) {
       if (part != null) {
         part.getTPartition().getSd().getSerdeInfo().getParameters().putAll(
             alterTbl.getProps());
@@ -5361,7 +5490,6 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
             params = gs.getParameters();
 
 
-
           formatter.showSchemaDescription(outStream,
                                             gs.getSchemaName(),
                                             gs.getSd().getCols(),
@@ -5391,6 +5519,7 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
     this.db.dropSchema(dropSchemaDesc.getSchemaName());
     return 0;
   }
+
   /**
    * Alter a given schema.
    *
@@ -5429,7 +5558,49 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
           oldCols.add(newCol);
         }
         gls.getTSchema().getSd().setCols(oldCols);
-    } else if (alterSchDesc.getOp() == AlterSchemaDesc.AlterSchemaTypes.RENAMECOLUMN) {
+    }
+
+    // add by tianlong
+    else if(alterSchDesc.getOp() == AlterSchemaDesc.AlterSchemaTypes.DELCOL){
+      List<FieldSchema> newCols = alterSchDesc.getNewCols();
+      List<FieldSchema> oldCols = gls.getCols();
+      // 检查该列是否存在，若存在则删除，否则抛出异常
+      // 因为只删除一列，所以newCol的size应该为1
+      Iterator<FieldSchema> newcolsIterator = newCols.iterator();
+      while(newcolsIterator.hasNext())
+      {
+        FieldSchema tmpFieldSchema = newcolsIterator.next();
+        String colName = tmpFieldSchema.getName();
+        String colType = tmpFieldSchema.getType();
+
+        Iterator<FieldSchema> oldcolsIterator = oldCols.iterator();
+        boolean exit = false;
+        while(oldcolsIterator.hasNext())
+        {
+          FieldSchema oldFieldSchema = oldcolsIterator.next();
+          String oldColName = oldFieldSchema.getName();
+          String oldColType = oldFieldSchema.getType();
+          // 如果列名和列类型相同，则删除这一列，否则报错。
+          if(oldColName.equalsIgnoreCase(colName) && oldColType.equalsIgnoreCase(colType))
+          {
+            exit = true;
+            oldCols.remove(oldFieldSchema);
+            break;
+          }
+
+        }
+        if(exit == false)
+        {
+          formatter.consoleError(console,
+              "Column '" + colName + "'does not exist",
+              formatter.MISSING);
+          return 1;
+        }
+        gls.getTSchema().getSd().setCols(oldCols);
+      }
+    }
+    // end by tianlong
+    else if (alterSchDesc.getOp() == AlterSchemaDesc.AlterSchemaTypes.RENAMECOLUMN) {
       List<FieldSchema> oldCols = gls.getCols();
       List<FieldSchema> newCols = new ArrayList<FieldSchema>();
       Iterator<FieldSchema> iterOldCols = oldCols.iterator();
@@ -5529,7 +5700,9 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
                              formatter.ERROR);
       return 1;
     }
-
+    if (!updateModifiedParameters(gls.getTschema().getParameters(), conf)) {
+      return 1;
+    }
     try {
       db.alterSchema(alterSchDesc.getOldName(), gls);
     } catch (InvalidOperationException e) {

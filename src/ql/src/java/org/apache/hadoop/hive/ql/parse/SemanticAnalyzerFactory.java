@@ -101,6 +101,7 @@ public final class SemanticAnalyzerFactory {
     commandType.put(HiveParser.TOK_CHANGE_PWD, HiveOperation.CHANGE_PWD);         //added by liulichao
     commandType.put(HiveParser.TOK_AUTHENTICATION, HiveOperation.AUTHENTICATION); //added by liulichao
     commandType.put(HiveParser.TOK_SHOW_USERNAMES, HiveOperation.SHOW_USERNAMES); //added by liulichao
+    commandType.put(HiveParser.TOK_ALTERTABLE_DROP_PROPERTIES, HiveOperation.ALTERTABLE_DROP_PROPERTIES);
   }
 
   static {
@@ -162,6 +163,7 @@ public final class SemanticAnalyzerFactory {
       case HiveParser.TOK_ALTERTABLE_DROPPARTS:
       case HiveParser.TOK_ALTERTABLE_ADDPARTS:
       case HiveParser.TOK_ALTERTABLE_PROPERTIES:
+      case HiveParser.TOK_ALTERTABLE_DROP_PROPERTIES:
       case HiveParser.TOK_ALTERTABLE_SERIALIZER:
       case HiveParser.TOK_ALTERTABLE_SERDEPROPERTIES:
       case HiveParser.TOK_ALTERINDEX_REBUILD:
@@ -250,6 +252,7 @@ public final class SemanticAnalyzerFactory {
       case HiveParser.TOK_DROPSCHEMA:
       case HiveParser.TOK_ALTERSCHEMA_RENAME:
       case HiveParser.TOK_ALTERSCHEMA_ADDCOLS:
+      case HiveParser.TOK_ALTERSCHEMA_DELCOL:
       case HiveParser.TOK_ALTERSCHEMA_REPLACECOLS:
       case HiveParser.TOK_ALTERSCHEMA_RENAMECOL:
       case HiveParser.TOK_ALTERSCHEMA_CHANGECOL_AFTER_POSITION:
@@ -275,6 +278,7 @@ public final class SemanticAnalyzerFactory {
       case HiveParser.TOK_SHOWSCHEMAS:
       case HiveParser.TOK_DESCSCHEMA:
       case HiveParser.TOK_ALTERTABLE_FILESPLIT:
+      case HiveParser.TOK_ALTERTABLE_DROPFILESPLIT:
       case HiveParser.TOK_ALTERTABLE_ADD_DISTRIBUTION:
       case HiveParser.TOK_ALTERTABLE_DELETE_DISTRIBUTION:
       case HiveParser.TOK_ALTER_NODEGROUP_ADD_NODES:

@@ -259,6 +259,9 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
     case HiveParser.TOK_ALTERTABLE_FILESPLIT:
       analyzeAlterTableFileSplit(ast, AlterTableTypes.ALTERFILESPLIT);
       break;
+//    case HiveParser.TOK_ALTERTABLE_DROPFILESPLIT:
+//      analyzeAlterTableDropFileSplit(ast, AlterTableTypes.DROPFILESPLITS);
+//      break;
     case HiveParser.TOK_ALTERTABLE_ADD_DISTRIBUTION:
       analyzeAlterTableDistribution(ast, AlterTableTypes.ADDNODEGROUP);
       break;
@@ -291,6 +294,9 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
       break;
     case HiveParser.TOK_ALTERTABLE_PROPERTIES:
       analyzeAlterTableProps(ast, false);
+      break;
+    case HiveParser.TOK_ALTERTABLE_DROP_PROPERTIES:
+      analyzeAlterTableDropProps(ast, false);
       break;
     case HiveParser.TOK_ALTERTABLE_CLUSTER_SORT:
       analyzeAlterTableClusterSort(ast);
@@ -568,6 +574,9 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
       break;
     case HiveParser.TOK_ALTERSCHEMA_ADDCOLS:
       analyzeAlterSchemaModifyCols(ast, AlterSchemaTypes.ADDCOLS);
+      break;
+    case HiveParser.TOK_ALTERSCHEMA_DELCOL:
+      analyzeAlterSchemaModifyCols(ast, AlterSchemaTypes.DELCOL);
       break;
     case HiveParser.TOK_ALTERSCHEMA_REPLACECOLS:
       analyzeAlterSchemaModifyCols(ast, AlterSchemaTypes.REPLACECOLS);
@@ -2282,6 +2291,7 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
       case RENAMEPARTITION:
       case ADDPROPS:
       case RENAME:
+      case DROPPROPS:
       case ALTERFILESPLIT:
       case ADDNODEGROUP:
       case DELETENODEGROUP:
@@ -2311,6 +2321,7 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
       case ADDPROPS:
       case RENAME:
       case ADDCOLS:
+      case DELCOL:
       case REPLACECOLS:
       case RENAMECOLUMN:
         // allow this form
@@ -2336,6 +2347,23 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
         .getChild(0));
     AlterTableDesc alterTblDesc =
         new AlterTableDesc(AlterTableTypes.ADDPROPS, expectView);
+    alterTblDesc.setProps(mapProp);
+    alterTblDesc.setOldName(tableName);
+
+    addInputsOutputsAlterTable(tableName, null, alterTblDesc);
+
+    rootTasks.add(TaskFactory.get(new DDLWork(getInputs(), getOutputs(),
+        alterTblDesc), conf));
+  }
+
+  private void analyzeAlterTableDropProps(ASTNode ast, boolean expectView)
+      throws SemanticException{
+
+    String tableName = getUnescapedName((ASTNode) ast.getChild(0));
+    HashMap<String, String> mapProp = getProps((ASTNode) (ast.getChild(1))
+        .getChild(0));
+    AlterTableDesc alterTblDesc =
+        new AlterTableDesc(AlterTableTypes.DROPPROPS, expectView);
     alterTblDesc.setProps(mapProp);
     alterTblDesc.setOldName(tableName);
 
@@ -2424,6 +2452,16 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
     case HiveParser.TOK_TBLRCFILE:
       inputFormat = RCFILE_INPUT;
       outputFormat = RCFILE_OUTPUT;
+      serde = COLUMNAR_SERDE;
+      break;
+    case HiveParser.TOK_TBLLUCENEFILE:
+      inputFormat = LUCENE_INPUT;
+      outputFormat = LUCENE_OUTPUT;
+      serde = COLUMNAR_SERDE;
+      break;
+    case HiveParser.TOK_TBLLUQUETFILE:
+      inputFormat = LUQUET_INPUT;
+      outputFormat = LUQUET_OUTPUT;
       serde = COLUMNAR_SERDE;
       break;
     case HiveParser.TOK_FILEFORMAT_GENERIC:
@@ -3614,6 +3652,18 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
         alterTblDesc), conf));
 
   }
+
+//  private void analyzeAlterTableDropFileSplit(ASTNode ast, AlterTableTypes alterType) throws SemanticException
+//  {
+//    String tblName = getUnescapedName((ASTNode) ast.getChild(0));
+//    List<FieldSchema> splitCols = new ArrayList<FieldSchema>();
+//    FieldSchema noneFieldSchema = new FieldSchema("none", "none", "");
+//    splitCols.add(noneFieldSchema);
+//
+//    AlterTableDesc alterTblDesc = new AlterTableDesc(splitCols, tblName, alterType);
+//    addInputsOutputsAlterTable(tblName, null, alterTblDesc);
+//    rootTasks.add(TaskFactory.get(new DDLWork(getInputs(), getOutputs(),alterTblDesc), conf));
+//  }
 
   private void analyzeAlterTableDistribution(ASTNode ast, AlterTableTypes alterType)
       throws SemanticException {

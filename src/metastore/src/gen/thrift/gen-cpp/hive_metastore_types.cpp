@@ -131,7 +131,8 @@ int _kMSOperationValues[] = {
   MSOperation::QUERY,
   MSOperation::ALTERINDEX_PROPS,
   MSOperation::ALTERDATABASE,
-  MSOperation::DESCDATABASE
+  MSOperation::DESCDATABASE,
+  MSOperation::ALTERTABLE_DROP_PROPERTIES
 };
 const char* _kMSOperationNames[] = {
   "EXPLAIN",
@@ -178,9 +179,10 @@ const char* _kMSOperationNames[] = {
   "QUERY",
   "ALTERINDEX_PROPS",
   "ALTERDATABASE",
-  "DESCDATABASE"
+  "DESCDATABASE",
+  "ALTERTABLE_DROP_PROPERTIES"
 };
-const std::map<int, const char*> _MSOperation_VALUES_TO_NAMES(::apache::thrift::TEnumIterator(45, _kMSOperationValues, _kMSOperationNames), ::apache::thrift::TEnumIterator(-1, NULL, NULL));
+const std::map<int, const char*> _MSOperation_VALUES_TO_NAMES(::apache::thrift::TEnumIterator(46, _kMSOperationValues, _kMSOperationNames), ::apache::thrift::TEnumIterator(-1, NULL, NULL));
 
 int _kCreateOperationValues[] = {
   CreateOperation::CREATE_NEW,

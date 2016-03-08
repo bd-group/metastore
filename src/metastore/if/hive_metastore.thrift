@@ -174,6 +174,7 @@ enum MSOperation {
 	ALTERINDEX_PROPS = 43,
 	ALTERDATABASE = 44,
 	DESCDATABASE = 45,
+	ALTERTABLE_DROP_PROPERTIES = 46, // by tianlong
 }
 
 enum CreateOperation {

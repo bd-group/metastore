@@ -986,6 +986,24 @@ public class MSGFactory {
           }
           break;
 
+      case MSGType.MSG_MODIFY_SCHEMA_ALT_COL_COMMENT:
+        //alter schema column comment
+        params.put("schema_name", msg.getOld_object_params().get("schema_name"));
+        if(msg.getOld_object_params().containsKey("column_name")){
+           params.put("column_name", msg.getOld_object_params().get("column_name"));
+        }
+        if(msg.getOld_object_params().containsKey("column_type")){
+          params.put("column_type",msg.getOld_object_params().get("column_type"));
+        }
+        if(msg.getOld_object_params().containsKey("comment")){
+          params.put("comment",msg.getOld_object_params().get("comment"));
+        }
+        if(msg.getOld_object_params().containsKey("old_column_comment"))
+        {
+          params.put("old_column_comment", msg.getOld_object_params().get("old_comment_comment"));
+        }
+        break;
+
       case MSGType.MSG_MODIFY_SCHEMA_PARAM:
             // 修改schema参数
         if (msg.getOld_object_params().containsKey("schema_name")) {

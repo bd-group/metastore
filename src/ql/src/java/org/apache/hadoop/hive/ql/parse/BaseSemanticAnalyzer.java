@@ -20,6 +20,7 @@ package org.apache.hadoop.hive.ql.parse;
 
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
+import java.security.InvalidParameterException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -51,6 +52,10 @@ import org.apache.hadoop.hive.ql.hooks.LineageInfo;
 import org.apache.hadoop.hive.ql.hooks.ReadEntity;
 import org.apache.hadoop.hive.ql.hooks.WriteEntity;
 import org.apache.hadoop.hive.ql.io.IgnoreKeyTextOutputFormat;
+import org.apache.hadoop.hive.ql.io.LuceneTableInputFormat;
+import org.apache.hadoop.hive.ql.io.LuceneTableOutputFormat;
+import org.apache.hadoop.hive.ql.io.LuquetInputFormat;
+import org.apache.hadoop.hive.ql.io.LuquetOutputFormat;
 import org.apache.hadoop.hive.ql.io.RCFileInputFormat;
 import org.apache.hadoop.hive.ql.io.RCFileOutputFormat;
 import org.apache.hadoop.hive.ql.lib.Node;
@@ -113,7 +118,16 @@ public abstract class BaseSemanticAnalyzer {
       .getName();
   protected static final String RCFILE_OUTPUT = RCFileOutputFormat.class
       .getName();
-  protected static final String COLUMNAR_SERDE = ColumnarSerDe.class.getName();
+  protected static final String COLUMNAR_SERDE = ColumnarSerDe.class
+      .getName();
+  protected static final String LUCENE_INPUT = LuceneTableInputFormat.class
+      .getName();
+  protected static final String LUCENE_OUTPUT = LuceneTableOutputFormat.class
+      .getName();
+  protected static final String LUQUET_INPUT = LuquetInputFormat.class
+      .getName();
+  protected static final String LUQUET_OUTPUT = LuquetOutputFormat.class
+      .getName();
 
   class RowFormatParams {
     String fieldDelim = null;
@@ -191,6 +205,22 @@ public abstract class BaseSemanticAnalyzer {
         }
         storageFormat = true;
         break;
+      case HiveParser.TOK_TBLLUCENEFILE:
+        inputFormat = LUCENE_INPUT;
+        outputFormat = LUCENE_OUTPUT;
+        if (shared.serde == null) {
+          shared.serde = COLUMNAR_SERDE;
+        }
+        storageFormat = true;
+        break;
+      case HiveParser.TOK_TBLLUQUETFILE:
+        inputFormat = LUQUET_INPUT;
+        outputFormat = LUQUET_OUTPUT;
+        if (shared.serde == null) {
+          shared.serde = COLUMNAR_SERDE;
+        }
+        storageFormat = true;
+        break;
       case HiveParser.TOK_TABLEFILEFORMAT:
         inputFormat = unescapeSQLString(child.getChild(0).getText());
         outputFormat = unescapeSQLString(child.getChild(1).getText());
@@ -218,7 +248,15 @@ public abstract class BaseSemanticAnalyzer {
           inputFormat = RCFILE_INPUT;
           outputFormat = RCFILE_OUTPUT;
           shared.serde = COLUMNAR_SERDE;
-        } else {
+        }else if ("LuceneFile".equalsIgnoreCase(conf.getVar(HiveConf.ConfVars.HIVEDEFAULTFILEFORMAT))) {
+          inputFormat = LUCENE_INPUT;
+          outputFormat = LUCENE_OUTPUT;
+          shared.serde = COLUMNAR_SERDE;
+        }else if("LuquetFile".equalsIgnoreCase(conf.getVar(HiveConf.ConfVars.HIVEDEFAULTFILEFORMAT))){
+          inputFormat = LUQUET_INPUT;
+          outputFormat = LUQUET_OUTPUT;
+          shared.serde = COLUMNAR_SERDE;
+        }else{
           inputFormat = TEXTFILE_INPUT;
           outputFormat = TEXTFILE_OUTPUT;
         }
@@ -610,31 +648,55 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
     //table partition columns analyze
       zlog.warn("Ast tree:"+ast.toStringTree());
       int partChildNum = ast.getChildCount();
+      zlog.info("----tianlong----partChildNum====="+partChildNum);
       for (int p = 0; p < partChildNum; p++) {//anyalyze partition by
 
         ASTNode p_child = (ASTNode) ast.getChild(p);
         zlog.warn("in part columns-111,tree:"+p_child.toString()
             +"--text:"+p_child.getText()+"--tokenType:"+p_child.getToken().getType());
         switch(p_child.getToken().getType()){
+        // 第一级分区走这个case，处理第一个child，然后break
         case  HiveParser.TOK_TABLEPARTCOLS://part function:hash/list/range/interval
+          zlog.info("-----tianlong-----colList"+colList.toString());
+          // getPartitionType( p_child,colList, pd); 这个函数已经得到了第一个分区的信息并且保存在colList中
           getPartitionType( p_child,colList, pd);
+          zlog.info("-----tianlong-----colList"+colList.toString());
+          zlog.info("-----tianlong-----"+p_child.toString());
           break;
+        //有这个case：TOK_SPLIT_EXPER的只有range和list分区
         case  HiveParser.TOK_SPLIT_EXPER:
         case  HiveParser.TOK_PARTITION_EXPER://一级分区定义，子分区定义也在此分支中处理
           zlog.warn("TOK_PARTITION_EXPER,tree+++++");
           List<PartitionDefinition> parts = getPartitionDef(p_child,global_sub_pd);
           pd.setPartitions(parts);
 
+          Iterator<PartitionDefinition> pdIterator = parts.iterator();
+          List<String> al = new ArrayList<String>();
+          while(pdIterator.hasNext())
+          {
+            PartitionDefinition tmppd = pdIterator.next();
+            al.addAll(tmppd.getPi().getArgs());
+            //zlog.info("-----tianlonglong-----pd.pi.args=="+tmppd.getPi().getArgs());
+          }
+          //zlog.info("-----tianlonglong-----al=="+al.toString());
+
+          pd.getPi().setArgs(al);
+          colList.get(0).setComment(pd.getPi().toJson());
+          //zlog.info("-----tianlonglong-----colList.get(0).getComment()=="+colList.get(0).getComment());
           break;
+        // 第二级分区走这个case，处理第二个child，为什么要递归调用？？？？？？
         case  HiveParser.TOK_SUBSPLITED_BY:
         case  HiveParser.TOK_SUBPARTITIONED_BY://直接跟在一级分区定义后，本子分区定义会直接传递给一级分区的所有分区
+          zlog.info("-----tianlong----case  HiveParser.TOK_SUBPARTITIONED_BY");
           global_sub_pd = new PartitionDefinition();
           global_sub_pd.setTableName(pd.getTableName());
           global_sub_pd.getPi().setP_level(2);//设为2级分区
           List<FieldSchema> subPartCol = analyzePartitionClause( p_child,  global_sub_pd);//递归调用，获取子分区定义
 //          List<SubPartitionFieldSchema> subPartFieldList =
 //              PartitionFactory.toSubPartitionFieldSchemaList(subPartCol);
+          zlog.info("-----tianlong-----colList"+colList.toString());
           colList.addAll(subPartCol);
+          zlog.info("-----tianlong-----colList"+colList.toString());
           PartitionFactory.createSubPartition(colList,global_sub_pd,true,null);
 //          assert(colList.size() == 1);
 
@@ -644,6 +706,16 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
           zlog.warn("TOK_SUBPARTITION_EXPER,tree-----");
           List<PartitionDefinition> sub_parts = getPartitionDef(p_child,global_sub_pd);
           pd.setPartitions(sub_parts);
+
+          Iterator<PartitionDefinition> subpd_Iterator = sub_parts.iterator();
+          List<String> args = new ArrayList<String>();
+          while(subpd_Iterator.hasNext())
+          {
+            PartitionDefinition tmppd = subpd_Iterator.next();
+            args.addAll(tmppd.getPi().getArgs());
+          }
+          pd.getPi().setArgs(args);
+          colList.get(0).setComment(pd.getPi().toJson());
           break;
         default:
           assert(false);
@@ -675,7 +747,6 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
         zlog.warn("TOK_PARTITION_EXPER,tree+++++");
         List<PartitionDefinition> parts = getPartitionDef(p_child,global_sub_pd);
         pd.setPartitions(parts);
-
         break;
       case  HiveParser.TOK_SUBSPLITED_BY://直接跟在一级分区定义后，本子分区定义会直接传递给一级分区的所有分区
         global_sub_pd = new PartitionDefinition();
@@ -726,6 +797,7 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
 
     for (int i = 1; i < paraNum; i++) {//anyalyze partition function params
       ASTNode func_para = (ASTNode) func_child.getChild(i);
+      // 第0个为function name，第1个为TOK_TABLE_OR_COL，否则抛出异常
       if(i==1 && func_para.getToken().getType() != HiveParser.TOK_TABLE_OR_COL){
         throw new SemanticException("Partition/Filesplit first parameter must be a columne name,please check if column name quotaed by ' or \".");
       }
@@ -757,6 +829,7 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
     String last_part_min_value = PartitionConstants.MINVALUE;
     String last_part_max_value = PartitionConstants.MAXVALUE;
 
+    zlog.info("-----tianlong-----getPartitionDef.ast=="+p_child);
     zlog.warn("getPartitionDef,tree:"+p_child.toStringTree()+"--text:"+p_child.getText()
         +"--getChildCount:"+p_child.getChildCount());
     int ptempNum = p_child.getChildCount();
@@ -784,20 +857,76 @@ TOK_PARTITION_EXPER--text:TOK_PARTITION_EXPER--tokenType:255
             ASTNode paras = (ASTNode) part_para.getChild(0);
             for (int i = 0; i < paras.getChildCount(); i++) {//anyalyze partition function params
               ASTNode para_value = (ASTNode) paras.getChild(i);
-              partition.getValues().add(para_value.getText());
+              // 对于'default'的处理
+              // 可以没有default，如果有则要去判断格式
+              String value_o = para_value.getText();
+              try {
+                int num = Integer.valueOf(value_o);
+              } catch (NumberFormatException e) {
+                // TODO: handle exception
+                if(!para_value.getText().equalsIgnoreCase("\"default\"") && !para_value.getText().equalsIgnoreCase("\'default\'"))
+                {
+                  throw new InvalidParameterException("FAILED: the list partition value is invalid!");
+                }
+                value_o = unescapeSQLString(value_o);
+              }
+
+              partition.getValues().add(value_o);
             }
+            partition.getPi().getArgs().add(part_name.getText()+":"+partition.getValues());
             break;
           case  HiveParser.TOK_VALUES_LESS:
             String value_i = part_para.getChild(0).getText();
+            if(t == ptempNum-1)
+            {
+              if(!value_i.equals("\"maxvalue\"") && !value_i.equals("\'maxvalue\'"))
+              {
+                throw new InvalidParameterException("FAILED: Need to define a last patition with boundary value maxvalue!");
+              }
+              value_i = unescapeSQLString(value_i);
+            }
+            //zlog.info("-----tianlong-----part_para.getChild(0).getText()=="+part_para.getChild(0).getText());
+            //zlog.info("-----tianlong-----value_i=="+value_i);
             partition.getValues().add(last_part_min_value);
             partition.getValues().add(value_i);
-            last_part_min_value = value_i;
+
+            // 如果是第一个,不做比较，因为至少有一个分区界限，所以此时value_i不可能为maxvalue
+            if(last_part_min_value.equals("minvalue"))
+            {
+              partition.getPi().getArgs().add(part_name.getText()+":("+last_part_min_value+","+value_i+")");
+              last_part_min_value = value_i;
+            }else if(value_i.equals("maxvalue")){   // 如果为最后一个
+              partition.getPi().getArgs().add(part_name.getText()+":["+last_part_min_value+","+value_i+")");
+              last_part_min_value = value_i;
+            }else{
+              if(Integer.valueOf(last_part_min_value) > Integer.valueOf(value_i))
+              {
+                throw new InvalidParameterException("FAILED: "+part_name.getText()+" partition boundary value is less than the former partition!");
+              }
+              partition.getPi().getArgs().add(part_name.getText()+":["+last_part_min_value+","+value_i+")");
+              last_part_min_value = value_i;
+            }
+            break;
+          case  HiveParser.TOK_VALUES_LESS_OR_EQUALS:
+            String value_b = part_para.getChild(0).getText();
+            partition.getValues().add(last_part_min_value);
+            partition.getValues().add(value_b);
+            last_part_min_value = value_b;
+            partition.getPi().getArgs().add(part_name.getText()+"<="+last_part_min_value);
             break;
           case  HiveParser.TOK_VALUES_GREATER:
             String value_a = part_para.getChild(0).getText();
             partition.getValues().add(value_a);
             partition.getValues().add(last_part_max_value);
             last_part_max_value = value_a;
+            partition.getPi().getArgs().add(part_name.getText()+">"+last_part_max_value);
+            break;
+          case  HiveParser.TOK_VALUES_GREATER_OR_EQUALS:
+            String value_c = part_para.getChild(0).getText();
+            partition.getValues().add(value_c);
+            partition.getValues().add(last_part_max_value);
+            last_part_max_value = value_c;
+            partition.getPi().getArgs().add(part_name.getText()+">="+last_part_max_value);
             break;
           default:
             assert(false);
