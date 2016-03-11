@@ -1043,8 +1043,8 @@ public class DiskManager {
       public FLS_Policy FLSelector_switch(String table) {
         FLEntry e = context.get(table);
         if (e == null) {
-          //return FLS_Policy.NONE;
-          return FLS_Policy.LOONG_STORE;                         //ZTT 默认使用龙存
+          return FLS_Policy.NONE;
+          //return FLS_Policy.LOONG_STORE;                         //ZTT 默认使用龙存
         } else {
           return e.policy;
         }
@@ -5018,50 +5018,46 @@ public class DiskManager {
     }
 
   //ztt 若使用龙存,则不用原来的策略寻找设备,否则使用原来的策略
-    public String findBestLoongDevice(String node, FileLocatingPolicy flp, String db_name, String table_name) throws IOException {
+    public String findBestLoongDevice(String node) throws IOException {
       if (safeMode) {
         throw new IOException("Disk Manager is in Safe Mode, waiting for disk reports ...\n");
       }
-      if (flselector.FLSelector_switch(db_name + "." + table_name) == FLS_Policy.LOONG_STORE){
-        LOG.info("ztt_findBestLoongDevice: we are in LOONG_STORE policy!");
-        NodeInfo ni = ndmap.get(node);
-        if (ni == null) {
-          throw new IOException("Node '" + node + "' does not exist in NDMap, are you sure node '"
-              + node + "' belongs to this MetaStore?"
-              + hiveConf.getVar(HiveConf.ConfVars.LOCAL_ATTRIBUTION) + "\n");
-        }
-        List<DeviceInfo> dilist = new ArrayList<DeviceInfo>();
-        if (ni.dis == null) {
-          return null;
-        }
-        for(DeviceInfo di : ni.dis) {
-          if(admap.contains(di) && DeviceInfo.getTag(di.prop) == MetaStoreConst.MDeviceProp.__LOONGSTORE__) {
-            LOG.info("ztt_findBestLoongDevice: this device is : "+ di.dev  +" it's loong device");
-            dilist.add(di);
-          }
-        }
-        String bestDev = null;
-        long free = 0;
-
-        if (dilist == null) {
-          return null;
-        }
-        for (DeviceInfo di : dilist) {
-          if (di.free > free) {
-            bestDev = di.dev;
-            free = di.free;
-          }
-        }
-        if (bestDev == null) {
-          Random r = new Random();
-          if (dilist.size() > 0) {
-            return dilist.get(r.nextInt(dilist.size())).dev;
-          }
-        }
-        return bestDev;
-      } else {
-        return findBestDevice(node, flp);
+      LOG.info("ztt_findBestLoongDevice: we are in LOONG_STORE policy!");
+      NodeInfo ni = ndmap.get(node);
+      if (ni == null) {
+        throw new IOException("Node '" + node + "' does not exist in NDMap, are you sure node '"
+            + node + "' belongs to this MetaStore?"
+            + hiveConf.getVar(HiveConf.ConfVars.LOCAL_ATTRIBUTION) + "\n");
       }
+      List<DeviceInfo> dilist = new ArrayList<DeviceInfo>();
+      if (ni.dis == null) {
+        return null;
+      }
+      for(DeviceInfo di : ni.dis) {
+        if(admap.contains(di) && DeviceInfo.getTag(di.prop) == MetaStoreConst.MDeviceProp.__LOONGSTORE__) {
+          LOG.info("ztt_findBestLoongDevice: this device is : "+ di.dev  +" it's loong device");
+          dilist.add(di);
+        }
+      }
+      String bestDev = null;
+      long free = 0;
+
+      if (dilist == null) {
+        return null;
+      }
+      for (DeviceInfo di : dilist) {
+        if (di.free > free) {
+          bestDev = di.dev;
+          free = di.free;
+        }
+      }
+      if (bestDev == null) {
+        Random r = new Random();
+        if (dilist.size() > 0) {
+          return dilist.get(r.nextInt(dilist.size())).dev;
+        }
+      }
+      return bestDev;
     }
 
     public String findBestDevice(String node, FileLocatingPolicy flp) throws IOException {
@@ -6381,10 +6377,32 @@ public class DiskManager {
                           synchronized (MetaStoreConst.file_reopen_lock) {
                             SFile file = rs.getSFile(newsfl.getFid());
                             if (file != null) {
-                              if (file.getStore_status() != MetaStoreConst.MFileStoreStatus.INCREATE) {
+                              if (file.getStore_status() == MetaStoreConst.MFileStoreStatus.INCREATE) {
+                                if(newsfl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONREP) {
+                                  newsfl.setDigest("ONREP@" + args[3]);
+                                  LOG.info("ztt.newsfl: "+ newsfl +"  digest(args[3]): " + args[3]);
+                                  rs.updateSFileLocation(newsfl);
+                                } else {
+                                  LOG.warn("Somebody reopen the file " + file.getFid() +
+                                      " and we do replicate on it, so ignore this replicate and delete it:(");
+                                  toDel = newsfl;
+                                }
+                              } else{
                                 toCheckRep.add(file);
-                                newsfl.setVisit_status(MetaStoreConst.MFileLocationVisitStatus.ONLINE);
-                                // BUG-XXX: We should check the digest here, and compare it with file.getDigest().
+                                SFileLocation onlinesfl = null;
+                                for (SFileLocation sfl : file.getLocations()) {
+                                  if(sfl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE){
+                                    onlinesfl = sfl;
+                                    break;
+                                  }
+                                }
+                                LOG.info("set online? "+"onlinesfl: " + onlinesfl +"  onlinesfl.getDigest(): " + onlinesfl.getDigest() + "  newsfl: " + newsfl +"   newsfl.args[3]: " + args[3]+ "  args[4]:"+ args[4]);
+                             // BUG-XXX: We should check the digest here, and compare it with file.getDigest().
+                                if (newsfl.getVisit_status() != MetaStoreConst.MFileLocationVisitStatus.ONREP ||
+                                    (newsfl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONREP &&
+                                    onlinesfl != null && onlinesfl.getDigest().equals(args[3]))) {
+                                  newsfl.setVisit_status(MetaStoreConst.MFileLocationVisitStatus.ONLINE);
+                                }
                                 newsfl.setDigest(args[3]);
                                 rs.updateSFileLocation(newsfl);
                               }

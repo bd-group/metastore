@@ -46,7 +46,6 @@ import org.apache.hadoop.hive.metastore.HiveMetaStore.HMSHandler.MSSessionState;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreServerContext;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreServerEventHandler;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
-import org.apache.hadoop.hive.metastore.LoongStorePolicy;
 import org.apache.hadoop.hive.metastore.MetaStoreEndFunctionContext;
 import org.apache.hadoop.hive.metastore.MetaStoreEndFunctionListener;
 import org.apache.hadoop.hive.metastore.MetaStoreUtils;
@@ -93,6 +92,7 @@ import org.apache.hadoop.hive.metastore.api.SFile;
 import org.apache.hadoop.hive.metastore.api.SFileLocation;
 import org.apache.hadoop.hive.metastore.api.SFileRef;
 import org.apache.hadoop.hive.metastore.api.SplitValue;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Subpartition;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.ThriftHiveMetastore.Iface;
@@ -136,7 +136,7 @@ public class ThriftRPC extends FacebookBase implements
   private static final Log LOG = LogFactory.getLog(ThriftRPC.class);
   private static final ScheduledExecutorService schedule = Executors.newScheduledThreadPool(1);
   public static DiskManager dm;
-  public static LoongStorePolicy lsp;
+  //public static LoongStorePolicy lsp ;
   private final Random rand = new Random();
   public static Long file_creation_lock = 0L;
   private List<MetaStoreEndFunctionListener> endFunctionListeners;
@@ -179,7 +179,7 @@ public class ThriftRPC extends FacebookBase implements
         }, 20, 20, TimeUnit.SECONDS);
 
         dm = new DiskManager(hiveConf, LOG, RsStatus.NEWMS);
-        lsp = new LoongStorePolicy();
+        //lsp = new LoongStorePolicy();
 
         // FIXME: add multimetastoretimer here, call every 10 seconds?
         Timer t = new Timer("MultiMetaStoreTimer");
@@ -775,6 +775,7 @@ public class ThriftRPC extends FacebookBase implements
           if (sfl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE) {
             sfl.setRep_id(0);
             sfl.setDigest(file.getDigest());
+            LOG.info("ztt.close_file: file.getDigest() : " +file.getDigest());
             rs.updateSFileLocation(sfl);
           } else  if(sfl.getVisit_status() != MetaStoreConst.MFileLocationVisitStatus.ONREP){
             sflToDel.add(sfl);
@@ -1087,63 +1088,145 @@ public class ThriftRPC extends FacebookBase implements
     return true;
   }
 
+  private String analyzeSplitTypes(List<FieldSchema> fileSplitkeys) {
+    String colname = "";
+    if (fileSplitkeys.size() == 0) {
+    } else if (fileSplitkeys.size() == 1) {
+      FieldSchema filesplitkey = fileSplitkeys.get(0);
+      colname = filesplitkey.getName();
+    } else {
+      // 倒数第二个分区
+      FieldSchema twoFieldSchema = fileSplitkeys.get(fileSplitkeys.size() - 2);
+      String twocolname = twoFieldSchema.getName();
+      String twoComment = twoFieldSchema.getComment();
+      PartitionInfo twopi = PartitionFactory.PartitionInfo.fromJson(twoComment);
+      int twopversion = twopi.getP_version();
+
+      // 最后一个分区
+      FieldSchema lastFieldSchema = fileSplitkeys.get(fileSplitkeys.size() - 1);
+      String lastcolname = lastFieldSchema.getName();
+      String lastComment = lastFieldSchema.getComment();
+      PartitionInfo lastpi = PartitionFactory.PartitionInfo.fromJson(lastComment);
+      int lastpversion = lastpi.getP_version();
+      // 判断最后两个分区的p_version是否一致
+      if (lastpversion == twopversion) {
+        colname = twocolname + "-" + lastcolname;
+      } else {
+        colname = lastcolname;
+      }
+    }
+    return colname;
+  }
+
+  public String get_sfile_location(String db_name, String table_name, List<SplitValue> values) throws MetaException, FileOperationException
+  {
+    String locationString = "";
+    if(db_name == null || table_name == null){
+      locationString = "/UNNAMED-DB/UNNAMED-TABLE/" + rand.nextInt(Integer.MAX_VALUE);
+      return locationString;
+    }
+    Table tbl = rs.getTable(db_name, table_name);
+    StorageDescriptor sd = tbl.getSd();
+    String tblLocation = sd.getLocation();
+    tblLocation = tblLocation.substring(21);
+    List<FieldSchema> fileSplitKeys = tbl.getFileSplitKeys();
+    String fileSplitNames = analyzeSplitTypes(fileSplitKeys);
+    String[] colsNames = fileSplitNames.split("-");
+    if(colsNames.length == 1)
+    {
+      SplitValue sv = values.get(0);
+      String splitKeyName = sv.getSplitKeyName();
+      // 判断splitValue的splitKeyName是否正确
+      if(!colsNames[0].equalsIgnoreCase(splitKeyName))
+      {
+        throw new FileOperationException("The splitKeyName of SplitValue is invalid!", FOFailReason.INVALID_SPLIT_VALUES);
+      }
+      String val = sv.getValue();
+      // tblLocation要把前面的hdfs路径去掉
+      locationString = tblLocation+"/"+splitKeyName+"="+val;
+    }else if(colsNames.length == 2){
+        String splitkeyname1 = "";
+        String splitkeyname2 = "";
+        String val1 = "";
+        String val2 = "";
+        if(values.size() == 4)
+        {
+          splitkeyname1 = colsNames[0];
+          splitkeyname2 = colsNames[1];
+          val1 = values.get(0).getValue();
+          val2 = values.get(2).getValue();
+        }else if(values.size() == 3){
+          // AAB
+          if(values.get(1).getSplitKeyName().equalsIgnoreCase(colsNames[0]))
+          {
+            splitkeyname1 = colsNames[0];
+            splitkeyname2 = colsNames[1];
+            val1 = values.get(0).getValue();
+            val2 = values.get(2).getValue();
+          }else if(values.get(1).getSplitKeyName().equalsIgnoreCase(colsNames[1])) //ABB
+          {
+            splitkeyname1 = colsNames[0];
+            splitkeyname2 = colsNames[1];
+            val1 = values.get(0).getValue();
+            val2 = values.get(1).getValue();
+          }
+        }
+        locationString = tblLocation+"/"+splitkeyname1+"="+val1+"/"+splitkeyname2+"="+val2;
+    }
+    return locationString;
+  }
+
   // copy from HiveMetaStore
   private SFile create_file(FileLocatingPolicy flp, String node_name, int repnr, String db_name,
       String table_name, List<SplitValue> values)
       throws FileOperationException, TException {
-    String table_path = null;
+//    String table_path = null;
+    String devid = null;
 
     if (dm == null) {
       return null;
     }
 
-    SFile cfile = null;
-    repnr = DiskManager.flselector.updateRepnr(db_name + "." + table_name, repnr);
- // how to convert table_name to tbl_id?
-    cfile = new SFile(0, db_name, table_name, MetaStoreConst.MFileStoreStatus.INCREATE, repnr,
-        "SFILE_DEFALUT", 0, 0, null, 0, null, values, MetaStoreConst.MFileLoadStatus.OK);
-    cfile = rs.createFile(cfile);
-    // cfile = getMS().getSFile(cfile.getFid());
-    if (cfile == null) {
-      throw new FileOperationException(
-          "Creating file with internal error, metadata inconsistent?", FOFailReason.INVALID_FILE);
-    }
     // try to parse table_name
-    if (db_name != null && table_name != null) {
-      Table tbl;
-      try {
-        tbl = rs.getTable(db_name, table_name);
-      } catch (MetaException me) {
-        throw new FileOperationException("Invalid DB or Table name:" + db_name + "." + table_name
-            + " + " + me.getMessage(), FOFailReason.INVALID_TABLE);
-      }
-      if (tbl == null) {
-        throw new FileOperationException(
-            "Invalid DB or Table name:" + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
-      }
-      table_path = tbl.getDbName() + "/" + tbl.getTableName();
-    }
-    String location = "/data/";
+//    if (db_name != null && table_name != null) {
+//      Table tbl;
+//      try {
+//        tbl = rs.getTable(db_name, table_name);
+//      } catch (MetaException me) {
+//        throw new FileOperationException("Invalid DB or Table name:" + db_name + "." + table_name
+//            + " + " + me.getMessage(), FOFailReason.INVALID_TABLE);
+//      }
+//      if (tbl == null) {
+//        throw new FileOperationException(
+//            "Invalid DB or Table name:" + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
+//      }
+//      table_path = tbl.getDbName() + "/" + tbl.getTableName();
+//    }
+//    String location = "/data/";
+//
+//    if (table_path == null) {
+//      location += "UNNAMED-DB/UNNAMED-TABLE/" + rand.nextInt(Integer.MAX_VALUE);
+//    } else {
+//      location += table_path + "/" + rand.nextInt(Integer.MAX_VALUE);
+//    }
 
-    if (table_path == null) {
-      location += "UNNAMED-DB/UNNAMED-TABLE/" + rand.nextInt(Integer.MAX_VALUE);
-    } else {
-      location += table_path + "/" + rand.nextInt(Integer.MAX_VALUE);
-    }
+    String location = get_sfile_location(db_name, table_name, values);
 
     if (node_name == null) {
       // this means we should select Best Available Node and Best Available Device;
       // FIXME: add FLSelector here, filter already used nodes, update will used nodes;
       try {
+        repnr = DiskManager.flselector.updateRepnr(db_name + "." + table_name, repnr);
         // call FLSelector's main function
         switch (DiskManager.flselector.FLSelector_switch(db_name + "." + table_name)) {
         default:
-        case LOONG_STORE:
-          LOG.info("ztt_create_file : loong_store policy");
-         // repnr = 1;                               //ztt 龙存会自动备份,所以这里将repnr置为1,原来策略不会进行备份
-          lsp.setAllocAffinity(location);
-          node_name = lsp.getNode(location, 0);            //ztt龙存提供的接口
-          break;
+//        case LOONG_STORE:
+//          LOG.info("ztt_create_file : loong_store policy");
+//         // repnr = 1;                               //ztt 龙存会自动备份,所以这里将repnr置为1,原来策略不会进行备份
+//          lsp.setAllocAffinity(location);
+//          node_name = lsp.getNode(location, 0);            //ztt龙存提供的接口
+//          devid = dm.findBestLoongDevice(node_name);
+//          break;
         case NONE:
           node_name = dm.findBestNode(flp);
           break;
@@ -1185,13 +1268,7 @@ public class ThriftRPC extends FacebookBase implements
         }
 
         if (node_name == null) {
-        //ztt若使用龙存没有返回有效的node_name则失败
-          if(DiskManager.flselector.FLSelector_switch(db_name + "." + table_name) == FLS_Policy.LOONG_STORE) {
-            LOG.info("ztt_create_file : Following the LOONG_STORE policy, we can't find any available node, return null!");
-            return null;
-          } else {
-            node_name = dm.findBestNode(flp);
-          }
+          node_name = dm.findBestNode(flp);
         }
         if (node_name == null) {
           throw new IOException("Following the FLP(" + flp + "), we can't find any available node now.");
@@ -1202,6 +1279,7 @@ public class ThriftRPC extends FacebookBase implements
             FOFailReason.SAFEMODE);
       }
     }
+    SFile cfile = null;
 
     // Step 1: find best device to put a file
     try {
@@ -1209,14 +1287,25 @@ public class ThriftRPC extends FacebookBase implements
         flp = new FileLocatingPolicy(null, null, FileLocatingPolicy.EXCLUDE_NODES,
             FileLocatingPolicy.EXCLUDE_DEVS_SHARED, true);
       }
-      //String devid = dm.findBestDevice(node_name, flp);
-      //ztt 从findBestLoongDevice判断是否用findBestDevice
-      String devid = dm.findBestLoongDevice(node_name, flp, db_name, table_name);
+      //ztt 说明没有使用龙存策略或者是使用了龙存策略，但是没找到可用设备
+      if (devid == null) {
+        devid = dm.findBestDevice(node_name, flp);
+      }
 
       if (devid == null) {
         throw new FileOperationException("Can not find any available device on node '" + node_name
             + "' now", FOFailReason.NOTEXIST);
       }
+
+      // how to convert table_name to tbl_id?
+     cfile = new SFile(0, db_name, table_name, MetaStoreConst.MFileStoreStatus.INCREATE, repnr,
+         "SFILE_DEFALUT", 0, 0, null, 0, null, values, MetaStoreConst.MFileLoadStatus.OK);
+     cfile = rs.createFile(cfile);
+     // cfile = getMS().getSFile(cfile.getFid());
+     if (cfile == null) {
+       throw new FileOperationException(
+           "Creating file with internal error, metadata inconsistent?", FOFailReason.INVALID_FILE);
+     }
 
       do {
         SFileLocation sfloc = new SFileLocation(node_name, cfile.getFid(), devid, location, 0,

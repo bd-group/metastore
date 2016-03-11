@@ -1020,7 +1020,12 @@ public class CacheStore {
 
     	//ztt 若文件处于增量复制状态服务重启了,放到under中,在diskmanager中再做处理
     	 if (m.getStore_status() == MetaStoreConst.MFileStoreStatus.INCREATE) {
-    	   underReplicated.add(m);
+    	   for(SFileLocation fl : m.getLocations()) {
+    	     if(fl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONREP) {
+    	       underReplicated.add(m);
+    	       break;
+    	     }
+    	   }
     	 }
 
       // find under replicated files
