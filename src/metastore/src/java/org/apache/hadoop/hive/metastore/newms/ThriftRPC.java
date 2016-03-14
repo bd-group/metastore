@@ -3519,6 +3519,9 @@ public class ThriftRPC extends FacebookBase implements
   }
 
   @Override
+  /**
+   * online_filelocation have to be called just after create_file*. it should honor INCREP file.
+   */
   public boolean online_filelocation(SFile file) throws MetaException, TException {
     // reget the file now
     SFile stored_file = get_file_by_id(file.getFid());
