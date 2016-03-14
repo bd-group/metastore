@@ -531,6 +531,8 @@ public class MsgProcessing {
 		  case MSGType.MSG_GRANT_PARTITION_COLUMN:
 		  case MSGType.MSG_GRANT_TABLE_COLUMN:
 
+		  case MSGType.MSG_REFRESH_ALL:
+
 		  case MSGType.MSG_REVOKE_GLOBAL:
 		  case MSGType.MSG_REVOKE_DB:
 		  case MSGType.MSG_REVOKE_TABLE:

@@ -102,6 +102,7 @@ public final class SemanticAnalyzerFactory {
     commandType.put(HiveParser.TOK_AUTHENTICATION, HiveOperation.AUTHENTICATION); //added by liulichao
     commandType.put(HiveParser.TOK_SHOW_USERNAMES, HiveOperation.SHOW_USERNAMES); //added by liulichao
     commandType.put(HiveParser.TOK_ALTERTABLE_DROP_PROPERTIES, HiveOperation.ALTERTABLE_DROP_PROPERTIES);
+    commandType.put(HiveParser.TOK_REFRESH, HiveOperation.REFRESHALL);//HiveOperation.REFRESHALL
   }
 
   static {
@@ -282,6 +283,7 @@ public final class SemanticAnalyzerFactory {
       case HiveParser.TOK_ALTERTABLE_DELETE_DISTRIBUTION:
       case HiveParser.TOK_ALTER_NODEGROUP_ADD_NODES:
       case HiveParser.TOK_ALTER_NODEGROUP_DELETE_NODES:
+      case HiveParser.TOK_REFRESH:
 
         return new DDLSemanticAnalyzer(conf);
       case HiveParser.TOK_ALTERTABLE_PARTITION:

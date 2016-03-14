@@ -608,6 +608,16 @@ public class ThriftRPC extends FacebookBase implements
     __cli.get().alterDatabase(name, db);
   }
 
+
+  @Override
+  public void refresh_operation(String rType) throws MetaException, NoSuchObjectException,
+      TException {
+    // TODO Auto-generated method stub
+    LOG.info( "---zqh--------refresh_operation" + rType);
+    rs.refresh_op(rType);
+
+  }
+
   @Override
   public void alter_index(String dbName, String tblName, String indexName, Index index)
       throws InvalidOperationException, MetaException, TException {
@@ -4091,5 +4101,7 @@ public class ThriftRPC extends FacebookBase implements
   public String getSysInfo() throws MetaException, TException {
     return DiskManager.sm.getSysInfo(dm);
   }
+
+
 
 }

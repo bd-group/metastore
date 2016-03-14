@@ -91,6 +91,7 @@ import org.apache.hadoop.hive.metastore.api.UnknownTableException;
 import org.apache.hadoop.hive.metastore.api.User;
 import org.apache.hadoop.hive.metastore.api.statfs;
 import org.apache.hadoop.hive.metastore.model.MetaStoreConst;
+//import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.shims.HadoopShims;
 import org.apache.hadoop.hive.shims.ShimLoader;
 import org.apache.hadoop.hive.thrift.HadoopThriftAuthBridge;
@@ -1109,6 +1110,12 @@ public class HiveMetaStoreClient implements IMetaStoreClient {
   throws InvalidOperationException, MetaException, TException {
     client.alter_partitions(dbName, tblName, newParts);
 }
+
+  public void refreshOp(String rType)
+      throws MetaException, NoSuchObjectException, TException {
+    LOG.info("-----------zqh----------- hivemetastoreclient in refreshOp"+rType);
+    client.refresh_operation(rType);
+  }
 
   public void alterDatabase(String dbName, Database db)
       throws MetaException, NoSuchObjectException, TException {

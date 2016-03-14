@@ -387,7 +387,8 @@ public class MsgServer {
 					    msg.getEvent_id() == MSGType.MSG_STA_FILE_CHANGE ||
 					    msg.getEvent_id() == MSGType.MSG_FILE_USER_SET_REP_CHANGE ||
 					    msg.getEvent_id() == MSGType.MSG_FAIL_NODE ||
-					    msg.getEvent_id() == MSGType.MSG_BACK_NODE
+					    msg.getEvent_id() == MSGType.MSG_BACK_NODE ||
+					    msg.getEvent_id() == MSGType.MSG_REFRESH_ALL
 					    // BUG-XXX: if we ignore CREATE_DEVICE and DEL_DEVICE, we can NOT
 					    // handle online/offline device
 					    //msg.getEvent_id() == MSGType.MSG_CREATE_DEVICE ||

@@ -527,6 +527,20 @@ public class Hive {
     }
   }
 
+  public void refreshOp(String rType)
+      throws HiveException {
+    try {
+      LOG.info("---zqh--getMSC().refreshOp(rType);");
+      getMSC().refreshOp(rType);
+    } catch (MetaException e) {
+      throw new HiveException("Unable to refresh" + rType, e);
+    } catch (NoSuchObjectException e) {
+      throw new HiveException("Refresh type " + rType + " does not exists.", e);
+    } catch (TException e) {
+      throw new HiveException("Unable to refresh " + rType, e);
+    }
+  }
+
   public void alterDatabase(String dbName, Database db)
       throws HiveException {
     try {

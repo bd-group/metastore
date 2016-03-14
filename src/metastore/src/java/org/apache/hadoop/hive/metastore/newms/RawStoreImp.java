@@ -1949,6 +1949,15 @@ public class RawStoreImp implements RawStore {
 		return ids;
 	}
 
+	public void refresh_op(String rType) {
+
+	  HashMap<String, Object> old_params = new HashMap<String, Object>();
+    old_params.put("refresh_type", rType);
+    DDLMsg ramsg = MsgServer.generateDDLMsg(MSGType.MSG_REFRESH_ALL,-1l,-1l, null,-1l,old_params);
+    MsgServer.pdSend(ramsg);
+
+	}
+
   @Override
   public long countFiles() throws MetaException {
     try {

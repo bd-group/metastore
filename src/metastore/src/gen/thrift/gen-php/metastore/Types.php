@@ -134,6 +134,7 @@ final class MSOperation {
   const ALTERDATABASE = 44;
   const DESCDATABASE = 45;
   const ALTERTABLE_DROP_PROPERTIES = 46;
+  const REFRESH = 47;
   static public $__names = array(
     1 => 'EXPLAIN',
     2 => 'CREATEDATABASE',
@@ -181,6 +182,7 @@ final class MSOperation {
     44 => 'ALTERDATABASE',
     45 => 'DESCDATABASE',
     46 => 'ALTERTABLE_DROP_PROPERTIES',
+    47 => 'REFRESH',
   );
 }
 
