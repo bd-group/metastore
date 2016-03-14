@@ -93,6 +93,7 @@ import org.apache.hadoop.hive.metastore.api.SFile;
 import org.apache.hadoop.hive.metastore.api.SFileLocation;
 import org.apache.hadoop.hive.metastore.api.SFileRef;
 import org.apache.hadoop.hive.metastore.api.SplitValue;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Subpartition;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.ThriftHiveMetastore.Iface;
@@ -136,6 +137,7 @@ public class ThriftRPC extends FacebookBase implements
   private static final Log LOG = LogFactory.getLog(ThriftRPC.class);
   private static final ScheduledExecutorService schedule = Executors.newScheduledThreadPool(1);
   public static DiskManager dm;
+  //public static LoongStorePolicy lsp ;
   private final Random rand = new Random();
   public static Long file_creation_lock = 0L;
   private List<MetaStoreEndFunctionListener> endFunctionListeners;
@@ -178,6 +180,7 @@ public class ThriftRPC extends FacebookBase implements
         }, 20, 20, TimeUnit.SECONDS);
 
         dm = new DiskManager(hiveConf, LOG, RsStatus.NEWMS);
+        //lsp = new LoongStorePolicy();
 
         // FIXME: add multimetastoretimer here, call every 10 seconds?
         Timer t = new Timer("MultiMetaStoreTimer");
@@ -1162,15 +1165,116 @@ public class ThriftRPC extends FacebookBase implements
     return true;
   }
 
+  private String analyzeSplitTypes(List<FieldSchema> fileSplitkeys) {
+    String colname = "";
+
+    if (fileSplitkeys.size() == 0) {
+    } else if (fileSplitkeys.size() == 1) {
+      FieldSchema filesplitkey = fileSplitkeys.get(0);
+      colname = filesplitkey.getName();
+    } else {
+      // 倒数第二个分区
+      FieldSchema twoFieldSchema = fileSplitkeys.get(fileSplitkeys.size() - 2);
+      String twocolname = twoFieldSchema.getName();
+      String twoComment = twoFieldSchema.getComment();
+      PartitionInfo twopi = PartitionFactory.PartitionInfo.fromJson(twoComment);
+      int twopversion = twopi.getP_version();
+
+      // 最后一个分区
+      FieldSchema lastFieldSchema = fileSplitkeys.get(fileSplitkeys.size() - 1);
+      String lastcolname = lastFieldSchema.getName();
+      String lastComment = lastFieldSchema.getComment();
+      PartitionInfo lastpi = PartitionFactory.PartitionInfo.fromJson(lastComment);
+      int lastpversion = lastpi.getP_version();
+      // 判断最后两个分区的p_version是否一致
+      if (lastpversion == twopversion) {
+        colname = twocolname + "-" + lastcolname;
+      } else {
+        colname = lastcolname;
+      }
+    }
+    return colname;
+  }
+
+  public String get_sfile_location(String db_name, String table_name, List<SplitValue> values)
+      throws FileOperationException {
+    String locationString = "";
+
+    if (db_name == null || table_name == null) {
+      locationString = "/UNNAMED-DB/UNNAMED-TABLE/" + rand.nextInt(Integer.MAX_VALUE);
+      return locationString;
+    }
+    try {
+      Table tbl = rs.getTable(db_name, table_name);
+      if (tbl == null) {
+        throw new FileOperationException(
+            "Invalid DB or Table name:" + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
+      }
+      StorageDescriptor sd = tbl.getSd();
+      String tblLocation = sd.getLocation();
+      // FIXME: change 21 to XXXX
+      tblLocation = tblLocation.substring(21);
+      List<FieldSchema> fileSplitKeys = tbl.getFileSplitKeys();
+      String fileSplitNames = analyzeSplitTypes(fileSplitKeys);
+      String[] colsNames = fileSplitNames.split("-");
+      if (colsNames.length == 1) {
+        SplitValue sv = values.get(0);
+        String splitKeyName = sv.getSplitKeyName();
+        // 判断splitValue的splitKeyName是否正确
+        if (!colsNames[0].equalsIgnoreCase(splitKeyName)) {
+          throw new FileOperationException("The splitKeyName of SplitValue is invalid!",
+              FOFailReason.INVALID_SPLIT_VALUES);
+        }
+        String val = sv.getValue();
+        // tblLocation要把前面的hdfs路径去掉
+        locationString = tblLocation + "/" + splitKeyName + "=" + val;
+      } else if (colsNames.length == 2) {
+        String splitkeyname1 = "";
+        String splitkeyname2 = "";
+        String val1 = "";
+        String val2 = "";
+        if (values.size() == 4) {
+          splitkeyname1 = colsNames[0];
+          splitkeyname2 = colsNames[1];
+          val1 = values.get(0).getValue();
+          val2 = values.get(2).getValue();
+        } else if (values.size() == 3) {
+          if (values.get(1).getSplitKeyName().equalsIgnoreCase(colsNames[0])) {
+            // AAB
+            splitkeyname1 = colsNames[0];
+            splitkeyname2 = colsNames[1];
+            val1 = values.get(0).getValue();
+            val2 = values.get(2).getValue();
+          } else if (values.get(1).getSplitKeyName().equalsIgnoreCase(colsNames[1])) {
+            //ABB
+            splitkeyname1 = colsNames[0];
+            splitkeyname2 = colsNames[1];
+            val1 = values.get(0).getValue();
+            val2 = values.get(1).getValue();
+          }
+        }
+        locationString = tblLocation + "/" +
+            splitkeyname1 + "=" + val1 + "/" + splitkeyname2 + "=" + val2;
+      }
+    } catch (MetaException me) {
+      throw new FileOperationException("Invalid DB or Table name:" + db_name + "." + table_name
+          + " + " + me.getMessage(), FOFailReason.INVALID_TABLE);
+    }
+    return locationString;
+  }
+
   // copy from HiveMetaStore
   private SFile create_file(FileLocatingPolicy flp, String node_name, int repnr, String db_name,
       String table_name, List<SplitValue> values)
       throws FileOperationException, TException {
-    String table_path = null;
+    String devid = null;
 
     if (dm == null) {
       return null;
     }
+
+    String location = get_sfile_location(db_name, table_name, values);
+
     if (node_name == null) {
       // this means we should select Best Available Node and Best Available Device;
       // FIXME: add FLSelector here, filter already used nodes, update will used nodes;
@@ -1240,26 +1344,14 @@ public class ThriftRPC extends FacebookBase implements
         flp = new FileLocatingPolicy(null, null, FileLocatingPolicy.EXCLUDE_NODES,
             FileLocatingPolicy.EXCLUDE_DEVS_SHARED, true);
       }
-      String devid = dm.findBestDevice(node_name, flp);
+      //ztt 说明没有使用龙存策略或者是使用了龙存策略，但是没找到可用设备
+      if (devid == null) {
+        devid = dm.findBestDevice(node_name, flp);
+      }
 
       if (devid == null) {
         throw new FileOperationException("Can not find any available device on node '" + node_name
             + "' now", FOFailReason.NOTEXIST);
-      }
-      // try to parse table_name
-      if (db_name != null && table_name != null) {
-        Table tbl;
-        try {
-          tbl = rs.getTable(db_name, table_name);
-        } catch (MetaException me) {
-          throw new FileOperationException("Invalid DB or Table name:" + db_name + "." + table_name
-              + " + " + me.getMessage(), FOFailReason.INVALID_TABLE);
-        }
-        if (tbl == null) {
-          throw new FileOperationException(
-              "Invalid DB or Table name:" + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
-        }
-        table_path = tbl.getDbName() + "/" + tbl.getTableName();
       }
 
       // how to convert table_name to tbl_id?
@@ -1273,13 +1365,6 @@ public class ThriftRPC extends FacebookBase implements
       }
 
       do {
-        String location = "/data/";
-
-        if (table_path == null) {
-          location += "UNNAMED-DB/UNNAMED-TABLE/" + rand.nextInt(Integer.MAX_VALUE);
-        } else {
-          location += table_path + "/" + rand.nextInt(Integer.MAX_VALUE);
-        }
         SFileLocation sfloc = new SFileLocation(node_name, cfile.getFid(), devid, location, 0,
             System.currentTimeMillis(),
             MetaStoreConst.MFileLocationVisitStatus.OFFLINE, "SFL_DEFAULT");
