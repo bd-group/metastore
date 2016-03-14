@@ -864,18 +864,10 @@ public class HiveMetaStore extends ThriftHiveMetastore {
 
     public void refresh_operation(String rType) throws MetaException, NoSuchObjectException,
         TException {
-      LOG.info("-----------zqh----------refresh all operation.");
-
+      LOG.info("-----------zqh---------- HiveMetaStore.java refresh all operation.");
       HashMap<String,Object> params= new HashMap<String,Object>();
-   /*   List<String> tmp = new ArrayList<String>();
-      tmp.add("store.remote");
-      tmp.add("store.remote.dbs");*/
-
       params.put("refresh_type", rType);
-      //DDLMsg generateDDLMsg(long event_id,long db_id,long node_id ,PersistenceManager pm , Object eventObject,HashMap<String,Object> old_object_params){
-
       MetaMsgServer.sendMsg(MSGFactory.generateDDLMsg(MSGType.MSG_REFRESH_ALL,-1l,-1l, null,-1l,params));
-      LOG.info("-----------zqh----------refresh all operation sucessful !");
 
     }
 

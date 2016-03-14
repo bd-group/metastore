@@ -1113,7 +1113,6 @@ public class HiveMetaStoreClient implements IMetaStoreClient {
 
   public void refreshOp(String rType)
       throws MetaException, NoSuchObjectException, TException {
-    LOG.info("-----------zqh----------- hivemetastoreclient in refreshOp"+rType);
     client.refresh_operation(rType);
   }
 

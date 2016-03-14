@@ -166,7 +166,6 @@ public class MSGFactory {
 
       String jsonData = jsonObject.toString();
       LOG.debug("---zjw--json:"+jsonData);
-
       return jsonData;
     }
 
@@ -1104,7 +1103,7 @@ public class MSGFactory {
         break;
       case MSGType.MSG_REFRESH_ALL:
         //更新元数据
-        if (msg.getOld_object_params().containsKey("refresh_all")) {
+        if (msg.getOld_object_params().containsKey("refresh_type")) {
           params.put("refresh_type", msg.getOld_object_params().get("refresh_type"));
         }
 
