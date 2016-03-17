@@ -81,6 +81,7 @@ if len(sys.argv) <= 1 or sys.argv[1] == '--help':
   print '   get_databases(string pattern)'
   print '   get_all_databases()'
   print '  void alter_database(string dbname, Database db)'
+  print '  void refresh_operation(string rType)'
   print '  Type get_type(string name)'
   print '  bool create_type(Type type)'
   print '  bool drop_type(string type)'
@@ -626,6 +627,12 @@ elif cmd == 'alter_database':
     print 'alter_database requires 2 args'
     sys.exit(1)
   pp.pprint(client.alter_database(args[0],eval(args[1]),))
+
+elif cmd == 'refresh_operation':
+  if len(args) != 1:
+    print 'refresh_operation requires 1 args'
+    sys.exit(1)
+  pp.pprint(client.refresh_operation(args[0],))
 
 elif cmd == 'get_type':
   if len(args) != 1:

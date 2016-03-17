@@ -956,6 +956,22 @@ module ThriftHiveMetastore
       return
     end
 
+    def refresh_operation(rType)
+      send_refresh_operation(rType)
+      recv_refresh_operation()
+    end
+
+    def send_refresh_operation(rType)
+      send_message('refresh_operation', Refresh_operation_args, :rType => rType)
+    end
+
+    def recv_refresh_operation()
+      result = receive_message(Refresh_operation_result)
+      raise result.o1 unless result.o1.nil?
+      raise result.o2 unless result.o2.nil?
+      return
+    end
+
     def get_type(name)
       send_get_type(name)
       return recv_get_type()
@@ -4074,6 +4090,19 @@ module ThriftHiveMetastore
         result.o2 = o2
       end
       write_result(result, oprot, 'alter_database', seqid)
+    end
+
+    def process_refresh_operation(seqid, iprot, oprot)
+      args = read_args(iprot, Refresh_operation_args)
+      result = Refresh_operation_result.new()
+      begin
+        @handler.refresh_operation(args.rType)
+      rescue ::MetaException => o1
+        result.o1 = o1
+      rescue ::NoSuchObjectException => o2
+        result.o2 = o2
+      end
+      write_result(result, oprot, 'refresh_operation', seqid)
     end
 
     def process_get_type(seqid, iprot, oprot)
@@ -7967,6 +7996,40 @@ module ThriftHiveMetastore
   end
 
   class Alter_database_result
+    include ::Thrift::Struct, ::Thrift::Struct_Union
+    O1 = 1
+    O2 = 2
+
+    FIELDS = {
+      O1 => {:type => ::Thrift::Types::STRUCT, :name => 'o1', :class => ::MetaException},
+      O2 => {:type => ::Thrift::Types::STRUCT, :name => 'o2', :class => ::NoSuchObjectException}
+    }
+
+    def struct_fields; FIELDS; end
+
+    def validate
+    end
+
+    ::Thrift::Struct.generate_accessors self
+  end
+
+  class Refresh_operation_args
+    include ::Thrift::Struct, ::Thrift::Struct_Union
+    RTYPE = 1
+
+    FIELDS = {
+      RTYPE => {:type => ::Thrift::Types::STRING, :name => 'rType'}
+    }
+
+    def struct_fields; FIELDS; end
+
+    def validate
+    end
+
+    ::Thrift::Struct.generate_accessors self
+  end
+
+  class Refresh_operation_result
     include ::Thrift::Struct, ::Thrift::Struct_Union
     O1 = 1
     O2 = 2

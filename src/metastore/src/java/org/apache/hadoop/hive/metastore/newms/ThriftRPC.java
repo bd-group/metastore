@@ -103,6 +103,8 @@ import org.apache.hadoop.hive.metastore.api.UnknownTableException;
 import org.apache.hadoop.hive.metastore.api.User;
 import org.apache.hadoop.hive.metastore.api.statfs;
 import org.apache.hadoop.hive.metastore.model.MetaStoreConst;
+import org.apache.hadoop.hive.metastore.msg.MSGFactory.DDLMsg;
+import org.apache.hadoop.hive.metastore.msg.MSGType;
 import org.apache.hadoop.hive.metastore.tools.PartitionFactory;
 import org.apache.hadoop.hive.metastore.tools.PartitionFactory.PartitionInfo;
 import org.apache.hadoop.hive.serde2.Deserializer;
@@ -606,6 +608,17 @@ public class ThriftRPC extends FacebookBase implements
   public void alter_database(String name, Database db)
       throws MetaException, NoSuchObjectException, TException {
     __cli.get().alterDatabase(name, db);
+  }
+
+
+  @Override
+  public void refresh_operation(String rType) throws MetaException, NoSuchObjectException,
+      TException {
+    LOG.info( "---zqh--------ThriftRPC.java refresh_operation" + rType);
+    HashMap<String, Object> old_params = new HashMap<String, Object>();
+    old_params.put("refresh_type", rType);
+    DDLMsg ramsg = MsgServer.generateDDLMsg(MSGType.MSG_REFRESH_ALL,-1l,-1l, null,-1l,old_params);
+    MsgServer.pdSend(ramsg);
   }
 
   @Override
@@ -4101,5 +4114,7 @@ public class ThriftRPC extends FacebookBase implements
   public String getSysInfo() throws MetaException, TException {
     return DiskManager.sm.getSysInfo(dm);
   }
+
+
 
 }

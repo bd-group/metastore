@@ -24,6 +24,10 @@ public class MSGType {
    */
   public static final int MSG_DROP_DATABESE = 1004;
   /**
+   * 更新库
+   */
+  public static final int MSG_REFRESH_DATABESE = 1005;
+  /**
    * 新建表
    */
   public static final int MSG_NEW_TALBE = 1101;
@@ -287,4 +291,5 @@ public class MSGType {
    * 检索和加载可能仍能够使用
    */
   public static final int MSG_DEVICE_SUSPECT = 6005;
+  public static final int MSG_REFRESH_ALL = 7001;
 }

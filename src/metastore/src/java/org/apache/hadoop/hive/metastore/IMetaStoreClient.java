@@ -543,6 +543,8 @@ public interface IMetaStoreClient {
   public void alterDatabase(String name, Database db)
       throws NoSuchObjectException, MetaException, TException;
 
+  public void refreshOp(String rType)
+      throws NoSuchObjectException, MetaException, TException;
   /**
    * @param db_name
    * @param tbl_name
