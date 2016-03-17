@@ -2164,7 +2164,7 @@ public class DiskManager {
 
         // If master has not been marked, async replicate sfile failed.
         if (!master_marked) {
-          LOG.error("Async replicate SFile " + f.getFid() + ", but no valid FROM SFileLocations!");
+          LOG.error("Async replicate SFile " + f.getFid() + ", but no valid master FROM SFileLocations!");
           // FIXME: this means we should clean this file?
           if (f.getStore_status() == MetaStoreConst.MFileStoreStatus.CLOSED ||
               f.getStore_status() == MetaStoreConst.MFileStoreStatus.REPLICATED) {
@@ -2408,7 +2408,7 @@ public class DiskManager {
 
         // If master has not been marked, async replicate sfile failed.
         if (!master_marked) {
-          LOG.error("Async replicate SFile " + f.getFid() + ", but no valid FROM SFileLocations!");
+          LOG.error("Async replicate SFile " + f.getFid() + ", but no valid master FROM SFileLocations!");
           // FIXME: this means we should clean this file?
           if (f.getStore_status() == MetaStoreConst.MFileStoreStatus.CLOSED ||
               f.getStore_status() == MetaStoreConst.MFileStoreStatus.REPLICATED) {
@@ -6246,6 +6246,9 @@ public class DiskManager {
                                   toDel = newsfl;
                                 }
                               } else {
+                                // BUG-XXX: consider increp situation, we might issue multiple INCREP request to dservice.
+                                // On close_file, we set SFile.store_status to CLOSED. Then, if we receive one +REP_R
+                                // response, we can't determine whether it is the last REP_R response.
                                 toCheckRep.add(file);
                                 newsfl.setVisit_status(MetaStoreConst.MFileLocationVisitStatus.ONLINE);
                                 // BUG-XXX: We should check the digest here, and compare it with file.getDigest().
@@ -6325,7 +6328,7 @@ public class DiskManager {
                           try {
                             int level = Integer.parseInt(args[3]);
                             if (level == 1 && args.length >= 5) {
-                              // this means we need to check MD5 of SFL
+                              // this means we need to check MD5 of SFL, but should consider the SFL status!
                               if (sfl.getDigest() != null && args[4] != null) {
                                 if (sfl.getDigest().equals(args[4])) {
                                   // ok, md5 check passed
@@ -6333,12 +6336,18 @@ public class DiskManager {
                                 } else if (sfl.getDigest().length() != 32) {
                                   // ignore this master copy or other specified digest?
                                   // e.g. sfl.getDigest().equals("SFL_DEFAULT")
+                                  // e.g. INCREP@...
                                 } else {
                                   LOG.warn("Detect MD5 mismatch for fid=" + sfl.getFid() +
                                       " expect " + sfl.getDigest() + " got SFL: " + r.args);
-                                  if (sfl.getDigest() != null) {
-                                    if (sfl.getDigest().equalsIgnoreCase("d41d8cd98f00b204e9800998ecf8427e")) {
+                                  if (r.args != null) {
+                                    if (sfl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE &&
+                                        System.currentTimeMillis() - sfl.getUpdate_time() > 5 * 60 * 1000 &&
+                                        r.args.equalsIgnoreCase("d41d8cd98f00b204e9800998ecf8427e")) {
                                       // FIXME: target directory is empty? we can safely delete it
+                                      LOG.warn("Detect fid=" + sfl.getFid() + " SFL dev " + sfl.getDevid() +
+                                          " loc " + sfl.getLocation() + "vstatus=" +
+                                          sfl.getVisit_status() + " is EMPTY, async del.");
                                       asyncDelSFL(sfl);
                                     }
                                   }

@@ -1020,6 +1020,7 @@ public class CacheStore {
     		LOG.warn("sfilelocation is null in fid " + m.getFid());
     		continue;
     	}
+
       // find under replicated files
       if (m.getStore_status() == MetaStoreConst.MFileStoreStatus.CLOSED ||
           m.getStore_status() == MetaStoreConst.MFileStoreStatus.REPLICATED) {
