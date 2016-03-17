@@ -175,6 +175,7 @@ enum MSOperation {
 	ALTERDATABASE = 44,
 	DESCDATABASE = 45,
 	ALTERTABLE_DROP_PROPERTIES = 46, // by tianlong
+	REFRESH = 47, // by zqh
 }
 
 enum CreateOperation {
@@ -679,6 +680,9 @@ service ThriftHiveMetastore extends fb303.FacebookService
   list<string> get_databases(1:string pattern) throws(1:MetaException o1)
   list<string> get_all_databases() throws(1:MetaException o1)
   void alter_database(1:string dbname, 2:Database db) throws(1:MetaException o1, 2:NoSuchObjectException o2)
+  
+  //by zqh
+  void refresh_operation(1:string rType) throws(1:MetaException o1, 2:NoSuchObjectException o2)
   
   // returns the type with given name (make seperate calls for the dependent types if needed)
   Type get_type(1:string name)  throws(1:MetaException o1, 2:NoSuchObjectException o2)

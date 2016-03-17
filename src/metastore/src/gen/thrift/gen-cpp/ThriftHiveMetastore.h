@@ -74,6 +74,7 @@ class ThriftHiveMetastoreIf : virtual public  ::facebook::fb303::FacebookService
   virtual void get_databases(std::vector<std::string> & _return, const std::string& pattern) = 0;
   virtual void get_all_databases(std::vector<std::string> & _return) = 0;
   virtual void alter_database(const std::string& dbname, const Database& db) = 0;
+  virtual void refresh_operation(const std::string& rType) = 0;
   virtual void get_type(Type& _return, const std::string& name) = 0;
   virtual bool create_type(const Type& type) = 0;
   virtual bool drop_type(const std::string& type) = 0;
@@ -452,6 +453,9 @@ class ThriftHiveMetastoreNull : virtual public ThriftHiveMetastoreIf , virtual p
     return;
   }
   void alter_database(const std::string& /* dbname */, const Database& /* db */) {
+    return;
+  }
+  void refresh_operation(const std::string& /* rType */) {
     return;
   }
   void get_type(Type& /* _return */, const std::string& /* name */) {
@@ -8166,6 +8170,124 @@ class ThriftHiveMetastore_alter_database_presult {
   NoSuchObjectException o2;
 
   _ThriftHiveMetastore_alter_database_presult__isset __isset;
+
+  uint32_t read(::apache::thrift::protocol::TProtocol* iprot);
+
+};
+
+typedef struct _ThriftHiveMetastore_refresh_operation_args__isset {
+  _ThriftHiveMetastore_refresh_operation_args__isset() : rType(false) {}
+  bool rType;
+} _ThriftHiveMetastore_refresh_operation_args__isset;
+
+class ThriftHiveMetastore_refresh_operation_args {
+ public:
+
+  ThriftHiveMetastore_refresh_operation_args() : rType() {
+  }
+
+  virtual ~ThriftHiveMetastore_refresh_operation_args() throw() {}
+
+  std::string rType;
+
+  _ThriftHiveMetastore_refresh_operation_args__isset __isset;
+
+  void __set_rType(const std::string& val) {
+    rType = val;
+  }
+
+  bool operator == (const ThriftHiveMetastore_refresh_operation_args & rhs) const
+  {
+    if (!(rType == rhs.rType))
+      return false;
+    return true;
+  }
+  bool operator != (const ThriftHiveMetastore_refresh_operation_args &rhs) const {
+    return !(*this == rhs);
+  }
+
+  bool operator < (const ThriftHiveMetastore_refresh_operation_args & ) const;
+
+  uint32_t read(::apache::thrift::protocol::TProtocol* iprot);
+  uint32_t write(::apache::thrift::protocol::TProtocol* oprot) const;
+
+};
+
+
+class ThriftHiveMetastore_refresh_operation_pargs {
+ public:
+
+
+  virtual ~ThriftHiveMetastore_refresh_operation_pargs() throw() {}
+
+  const std::string* rType;
+
+  uint32_t write(::apache::thrift::protocol::TProtocol* oprot) const;
+
+};
+
+typedef struct _ThriftHiveMetastore_refresh_operation_result__isset {
+  _ThriftHiveMetastore_refresh_operation_result__isset() : o1(false), o2(false) {}
+  bool o1;
+  bool o2;
+} _ThriftHiveMetastore_refresh_operation_result__isset;
+
+class ThriftHiveMetastore_refresh_operation_result {
+ public:
+
+  ThriftHiveMetastore_refresh_operation_result() {
+  }
+
+  virtual ~ThriftHiveMetastore_refresh_operation_result() throw() {}
+
+  MetaException o1;
+  NoSuchObjectException o2;
+
+  _ThriftHiveMetastore_refresh_operation_result__isset __isset;
+
+  void __set_o1(const MetaException& val) {
+    o1 = val;
+  }
+
+  void __set_o2(const NoSuchObjectException& val) {
+    o2 = val;
+  }
+
+  bool operator == (const ThriftHiveMetastore_refresh_operation_result & rhs) const
+  {
+    if (!(o1 == rhs.o1))
+      return false;
+    if (!(o2 == rhs.o2))
+      return false;
+    return true;
+  }
+  bool operator != (const ThriftHiveMetastore_refresh_operation_result &rhs) const {
+    return !(*this == rhs);
+  }
+
+  bool operator < (const ThriftHiveMetastore_refresh_operation_result & ) const;
+
+  uint32_t read(::apache::thrift::protocol::TProtocol* iprot);
+  uint32_t write(::apache::thrift::protocol::TProtocol* oprot) const;
+
+};
+
+typedef struct _ThriftHiveMetastore_refresh_operation_presult__isset {
+  _ThriftHiveMetastore_refresh_operation_presult__isset() : o1(false), o2(false) {}
+  bool o1;
+  bool o2;
+} _ThriftHiveMetastore_refresh_operation_presult__isset;
+
+class ThriftHiveMetastore_refresh_operation_presult {
+ public:
+
+
+  virtual ~ThriftHiveMetastore_refresh_operation_presult() throw() {}
+
+  MetaException o1;
+  NoSuchObjectException o2;
+
+  _ThriftHiveMetastore_refresh_operation_presult__isset __isset;
 
   uint32_t read(::apache::thrift::protocol::TProtocol* iprot);
 
@@ -28150,6 +28272,9 @@ class ThriftHiveMetastoreClient : virtual public ThriftHiveMetastoreIf, public  
   void alter_database(const std::string& dbname, const Database& db);
   void send_alter_database(const std::string& dbname, const Database& db);
   void recv_alter_database();
+  void refresh_operation(const std::string& rType);
+  void send_refresh_operation(const std::string& rType);
+  void recv_refresh_operation();
   void get_type(Type& _return, const std::string& name);
   void send_get_type(const std::string& name);
   void recv_get_type(Type& _return);
@@ -28659,6 +28784,7 @@ class ThriftHiveMetastoreProcessor : public  ::facebook::fb303::FacebookServiceP
   void process_get_databases(int32_t seqid, ::apache::thrift::protocol::TProtocol* iprot, ::apache::thrift::protocol::TProtocol* oprot, void* callContext);
   void process_get_all_databases(int32_t seqid, ::apache::thrift::protocol::TProtocol* iprot, ::apache::thrift::protocol::TProtocol* oprot, void* callContext);
   void process_alter_database(int32_t seqid, ::apache::thrift::protocol::TProtocol* iprot, ::apache::thrift::protocol::TProtocol* oprot, void* callContext);
+  void process_refresh_operation(int32_t seqid, ::apache::thrift::protocol::TProtocol* iprot, ::apache::thrift::protocol::TProtocol* oprot, void* callContext);
   void process_get_type(int32_t seqid, ::apache::thrift::protocol::TProtocol* iprot, ::apache::thrift::protocol::TProtocol* oprot, void* callContext);
   void process_create_type(int32_t seqid, ::apache::thrift::protocol::TProtocol* iprot, ::apache::thrift::protocol::TProtocol* oprot, void* callContext);
   void process_drop_type(int32_t seqid, ::apache::thrift::protocol::TProtocol* iprot, ::apache::thrift::protocol::TProtocol* oprot, void* callContext);
@@ -28868,6 +28994,7 @@ class ThriftHiveMetastoreProcessor : public  ::facebook::fb303::FacebookServiceP
     processMap_["get_databases"] = &ThriftHiveMetastoreProcessor::process_get_databases;
     processMap_["get_all_databases"] = &ThriftHiveMetastoreProcessor::process_get_all_databases;
     processMap_["alter_database"] = &ThriftHiveMetastoreProcessor::process_alter_database;
+    processMap_["refresh_operation"] = &ThriftHiveMetastoreProcessor::process_refresh_operation;
     processMap_["get_type"] = &ThriftHiveMetastoreProcessor::process_get_type;
     processMap_["create_type"] = &ThriftHiveMetastoreProcessor::process_create_type;
     processMap_["drop_type"] = &ThriftHiveMetastoreProcessor::process_drop_type;
@@ -29589,6 +29716,15 @@ class ThriftHiveMetastoreMultiface : virtual public ThriftHiveMetastoreIf, publi
       ifaces_[i]->alter_database(dbname, db);
     }
     ifaces_[i]->alter_database(dbname, db);
+  }
+
+  void refresh_operation(const std::string& rType) {
+    size_t sz = ifaces_.size();
+    size_t i = 0;
+    for (; i < (sz - 1); ++i) {
+      ifaces_[i]->refresh_operation(rType);
+    }
+    ifaces_[i]->refresh_operation(rType);
   }
 
   void get_type(Type& _return, const std::string& name) {
