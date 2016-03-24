@@ -10,6 +10,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.lang.reflect.UndeclaredThrowableException;
+import java.net.URI;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.metrics.Metrics;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.DiskManager;
@@ -1178,6 +1180,22 @@ public class ThriftRPC extends FacebookBase implements
     return true;
   }
 
+  private String handleHashSplitValue(String value) throws FileOperationException
+  {
+    if(value.contains("-")) {
+      String[] val = value.split("-");
+      if(val.length != 2)
+      {
+        throw new FileOperationException(
+            "Invalid Hash splitValues" , FOFailReason.INVALID_SPLIT_VALUES);
+      } else {
+        return val[1];
+      }
+    } else {
+      return value;
+    }
+  }
+
   private String analyzeSplitTypes(List<FieldSchema> fileSplitkeys) {
     String colname = "";
 
@@ -1225,11 +1243,18 @@ public class ThriftRPC extends FacebookBase implements
       }
       StorageDescriptor sd = tbl.getSd();
       String tblLocation = sd.getLocation();
-      // FIXME: change 21 to XXXX
-      tblLocation = tblLocation.substring(21);
+      URI uri = new Path(tblLocation).toUri();
+      String pathString = uri.getPath();
+      if (pathString == null) {
+        throw new FileOperationException(
+            "Invalid DB or Table name:" + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
+      }
       List<FieldSchema> fileSplitKeys = tbl.getFileSplitKeys();
       String fileSplitNames = analyzeSplitTypes(fileSplitKeys);
       String[] colsNames = fileSplitNames.split("-");
+      if (colsNames.length == 0) {
+         return pathString;
+      }
       if (colsNames.length == 1) {
         SplitValue sv = values.get(0);
         String splitKeyName = sv.getSplitKeyName();
@@ -1239,8 +1264,7 @@ public class ThriftRPC extends FacebookBase implements
               FOFailReason.INVALID_SPLIT_VALUES);
         }
         String val = sv.getValue();
-        // tblLocation要把前面的hdfs路径去掉
-        locationString = tblLocation + "/" + splitKeyName + "=" + val;
+        locationString = pathString + "/" + handleHashSplitValue(splitKeyName) + "=" + val;
       } else if (colsNames.length == 2) {
         String splitkeyname1 = "";
         String splitkeyname2 = "";
@@ -1266,8 +1290,8 @@ public class ThriftRPC extends FacebookBase implements
             val2 = values.get(1).getValue();
           }
         }
-        locationString = tblLocation + "/" +
-            splitkeyname1 + "=" + val1 + "/" + splitkeyname2 + "=" + val2;
+        locationString = pathString + "/" +
+            splitkeyname1 + "=" + handleHashSplitValue(val1) + "/" + splitkeyname2 + "=" + handleHashSplitValue(val2);
       }
     } catch (MetaException me) {
       throw new FileOperationException("Invalid DB or Table name:" + db_name + "." + table_name
