@@ -57,6 +57,7 @@
   <property name="checkstyle.build.dir" location="${build.dir.hive}/checkstyle"/>
   <property name="rat.build.dir" location="${build.dir.hive}/rat"/>
   <property name="md5sum.format" value="{0}  {1}"/>
+  <property name="make.cmd" value="make"/>
 
   <!-- Ignore Postgres upgrade scripts unless 'include.postgres' is true -->
   <condition property="metastore.excludes"
@@ -267,7 +268,24 @@
              classpath="${build.dir.hive}/anttasks/hive-anttasks-${version}.jar"/>
   </target>
 
+  <target name="compile-loongPolicy" depends="jar">
+    <echo message="Project: ${ant.project.name}"/>
+    <exec dir="./loongPolicy" executable="${make.cmd}" failonerror="true">
+      <env key="BASE_DIR" value="${basedir}"/>
+      <env key="BUILD_DIR" value="${basedir}/build"/>
+    </exec>
+    <copy file="${basedir}/loongPolicy/libLoongStorePolicy.so" todir="${basedir}/build/metastore"/>
+  </target>
   
+  <target name="clean-loongPolicy">
+    <echo message="Project: ${ant.project.name}"/>
+    <exec dir="./loongPolicy" executable="${make.cmd}" failonerror="false">
+      <arg line="clean"/>
+      <env key="BASE_DIR" value="${basedir}"/>
+      <env key="BUILD_DIR" value="${basedir}/build"/>
+    </exec>
+  </target>
+
   <target name="compile-cpp"
           depends="init"
           description="Build CPP artifacts" >
@@ -368,6 +386,7 @@
     <delete dir="${target.dir}"/>
     <antcall target="clean-online"/>
     <antcall target="clean-offline"/>
+    <antcall target="clean-loongPolicy"/>
   </target>
 
   <target name="clean-online" unless="offline">
@@ -403,7 +422,7 @@
   </target>
 
   <target name="package"
-          depends="jar"
+          depends="jar,compile-loongPolicy"
           description="Deploy JAR artifacts">
     <echo message="Project: ${ant.project.name}"/>
     <echo message="Deploying Hive jars to ${target.dir}"/>

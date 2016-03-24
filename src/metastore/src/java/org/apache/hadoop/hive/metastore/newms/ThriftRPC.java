@@ -47,6 +47,7 @@ import org.apache.hadoop.hive.metastore.HiveMetaStore.HMSHandler.MSSessionState;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreServerContext;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreServerEventHandler;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
+import org.apache.hadoop.hive.metastore.LoongStorePolicy;
 import org.apache.hadoop.hive.metastore.MetaStoreEndFunctionContext;
 import org.apache.hadoop.hive.metastore.MetaStoreEndFunctionListener;
 import org.apache.hadoop.hive.metastore.MetaStoreUtils;
@@ -137,7 +138,7 @@ public class ThriftRPC extends FacebookBase implements
   private static final Log LOG = LogFactory.getLog(ThriftRPC.class);
   private static final ScheduledExecutorService schedule = Executors.newScheduledThreadPool(1);
   public static DiskManager dm;
-  //public static LoongStorePolicy lsp ;
+  public static LoongStorePolicy lsp ;
   private final Random rand = new Random();
   public static Long file_creation_lock = 0L;
   private List<MetaStoreEndFunctionListener> endFunctionListeners;
@@ -180,7 +181,7 @@ public class ThriftRPC extends FacebookBase implements
         }, 20, 20, TimeUnit.SECONDS);
 
         dm = new DiskManager(hiveConf, LOG, RsStatus.NEWMS);
-        //lsp = new LoongStorePolicy();
+        lsp = new LoongStorePolicy();
 
         // FIXME: add multimetastoretimer here, call every 10 seconds?
         Timer t = new Timer("MultiMetaStoreTimer");
@@ -1283,6 +1284,17 @@ public class ThriftRPC extends FacebookBase implements
         // call FLSelector's main function
         switch (DiskManager.flselector.FLSelector_switch(db_name + "." + table_name)) {
         default:
+        case LOONG_STORE:
+          LOG.info("ztt_create_file : loong_store policy");
+         // repnr = 1;                               //ztt 龙存会自动备份,所以这里将repnr置为1,原来策略不会进行备份
+          lsp.setAllocAffinity(location);
+          node_name = lsp.getNode(location, 0);            //ztt龙存提供的接口
+          if (node_name != null) {
+            devid = dm.findBestLoongDevice(node_name);
+          } else {
+            LOG.info("ztt.LoongStore does not provide one available node, we will use traditional policy.");
+          }
+          break;
         case NONE:
           node_name = dm.findBestNode(flp);
           break;

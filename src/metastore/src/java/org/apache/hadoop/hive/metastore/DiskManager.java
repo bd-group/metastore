@@ -856,7 +856,7 @@ public class DiskManager {
       public final Map<String, FLEntry> context = new ConcurrentHashMap<String, FLEntry>();
 
       public enum FLS_Policy {
-        NONE, FAIR_NODES, ORDERED_ALLOC_DEVS,
+        NONE, FAIR_NODES, ORDERED_ALLOC_DEVS, LOONG_STORE,
       }
 
       public void initWatchedTables(RawStore rs, String[] tables, FLS_Policy policy) throws MetaException {
@@ -1064,7 +1064,8 @@ public class DiskManager {
       public FLS_Policy FLSelector_switch(String table) {
         FLEntry e = context.get(table);
         if (e == null) {
-          return FLS_Policy.NONE;
+          //return FLS_Policy.NONE;
+          return FLS_Policy.LOONG_STORE;
         } else {
           return e.policy;
         }
@@ -4954,6 +4955,51 @@ public class DiskManager {
           dilist.add(toDel);
         }
       }
+    }
+
+    //ztt 若使用龙存,则不用原来的策略寻找设备,否则使用原来的策略
+    public String findBestLoongDevice(String node) throws IOException {
+      if (safeMode) {
+        throw new IOException("Disk Manager is in Safe Mode, waiting for disk reports ...\n");
+      }
+      LOG.info("ztt_findBestLoongDevice: we are in LOONG_STORE policy!");
+      NodeInfo ni = ndmap.get(node);
+      if (ni == null) {
+        throw new IOException("Node '" + node + "' does not exist in NDMap, are you sure node '"
+            + node + "' belongs to this MetaStore?"
+            + hiveConf.getVar(HiveConf.ConfVars.LOCAL_ATTRIBUTION) + "\n");
+      }
+      List<DeviceInfo> dilist = new ArrayList<DeviceInfo>();
+      if (ni.dis == null) {
+        return null;
+      }
+      for(DeviceInfo di : ni.dis) {
+        if(admap.contains(di) && (DeviceInfo.getTags(di.prop) & MetaStoreConst.MDeviceProp.__LOONGSTORE__) != 0) {
+          LOG.info("ztt_findBestLoongDevice: this device is : "+ di.dev  +" it's loong device");
+          dilist.add(di);
+        }
+      }
+      String bestDev = null;
+      long free = 0;
+
+      if (dilist == null) {
+        return null;
+      }
+      for (DeviceInfo di : dilist) {
+        if (di.free > free) {
+          bestDev = di.dev;
+          free = di.free;
+        }
+      }
+      if (bestDev == null) {
+        Random r = new Random();
+        if (dilist.size() > 0) {
+          return dilist.get(r.nextInt(dilist.size())).dev;
+        } else {
+          LOG.info("ztt.LoongStore this node : " + node +" does not have a loongstore device, we will use traditional policy to find a device.");
+        }
+      }
+      return bestDev;
     }
 
     public String findBestDevice(String node, FileLocatingPolicy flp) throws IOException {
