@@ -1357,7 +1357,7 @@ public class ThriftRPC extends FacebookBase implements
         flp = new FileLocatingPolicy(null, null, FileLocatingPolicy.EXCLUDE_NODES,
             FileLocatingPolicy.EXCLUDE_DEVS_SHARED, true);
       }
-      //ztt 说明没有使用龙存策略或者是使用了龙存策略，但是没找到可用设备
+
       if (devid == null) {
         devid = dm.findBestDevice(node_name, flp);
       }
@@ -1490,7 +1490,10 @@ public class ThriftRPC extends FacebookBase implements
         case none:
         case roundrobin:
         case list:
+          vlen += 1;
+          break;
         case range:
+          vlen += 2;
           break;
         case interval:
           vlen += 2;
@@ -1506,18 +1509,70 @@ public class ThriftRPC extends FacebookBase implements
       }
       long low = -1,
       high = -1;
+      String range_low = null;
+      String range_high = null;
+      Map<String, String> rangeMap = new HashMap<String, String>();
       for (int i = 0, j = 0; i < values.size(); i++) {
+
         SplitValue sv = values.get(i);
         PartitionInfo pi = pis.get(j);
-
+        List<String> argsList = pi.getArgs();
         switch (pi.getP_type()) {
         case none:
         case roundrobin:
         case list:
+          range_low = range_high = null;
+          low = high = -1;
+          Set<String> set = new HashSet<String>();
+          for(String arg: argsList)
+          {
+            String tmp = arg.split(":")[1];
+            set.add(tmp);
+          }
+          if(!set.contains(sv.getValue())) {
+            throw new FileOperationException("ListValue mismatch, please check your metadata.",
+                FOFailReason.INVALID_SPLIT_VALUES);
+          }
+          j++;
+          break;
         case range:
-          throw new FileOperationException("Split type " + pi.getP_type()
-              + " shouldn't be set values.", FOFailReason.INVALID_SPLIT_VALUES);
+          low = high = -1;
+            if(range_low == null)
+            {
+              for(String str : argsList)
+              {
+                String range = str.split(":")[1];
+                String range_trim=range.substring(1, range.lastIndexOf(")"));
+                rangeMap.put(range_trim.split(",")[0], range_trim.split(",")[1]);
+              }
+              range_low = sv.getValue();
+              if(!rangeMap.containsKey(range_low)) {
+                throw new FileOperationException("Invalid partition low_range specified: " + low + ", ",
+                    FOFailReason.INVALID_SPLIT_VALUES);
+              }
+              break;
+            }
+            if(range_high == null)
+            {
+              range_high = sv.getValue();
+
+              if(rangeMap.containsKey(range_low)) {
+                if(!range_high.equals(rangeMap.get(range_low))) {
+                  throw new FileOperationException("Invalid partition high_range specified: " + high + ", ",
+                      FOFailReason.INVALID_SPLIT_VALUES);
+                }
+              }else
+              {
+                throw new FileOperationException("Invalid partition low_range specified: " + low + ", ",
+                    FOFailReason.INVALID_SPLIT_VALUES);
+              }
+              j++;
+              break;
+            }
+            break;
+
         case interval:
+          range_low = range_high = null;
           if (low == -1) {
             try {
               low = Long.parseLong(sv.getValue());
@@ -1564,11 +1619,13 @@ public class ThriftRPC extends FacebookBase implements
                       interval_unit + "(" + iu + ").", FOFailReason.INVALID_SPLIT_VALUES);
             }
             j++;
+            low = high = -1;
             break;
           }
           break;
         case hash:
           low = high = -1;
+          range_low = range_high = null;
           long v;
           try {
             // Format: "num-value"
@@ -1593,6 +1650,7 @@ public class ThriftRPC extends FacebookBase implements
             throw new FileOperationException("Hash value exceeds valid range: [0, " + pi.getP_num()
                 + ").", FOFailReason.INVALID_SPLIT_VALUES);
           }
+          j++;
           break;
         }
         // check version, column name here
@@ -1608,7 +1666,6 @@ public class ThriftRPC extends FacebookBase implements
       // ignore db, table, and values check
       break;
     }
-
     // Step 2: do file creation or file gets now
     boolean do_create = true;
     SFile r = null;
@@ -1631,7 +1688,6 @@ public class ThriftRPC extends FacebookBase implements
     }
     if (do_create) {
       FileLocatingPolicy flp = null;
-
       // do not select the backup/shared device for the first entry
       switch (policy.getOperation()) {
       case CREATE_NEW_IN_NODEGROUPS:
@@ -1669,7 +1725,6 @@ public class ThriftRPC extends FacebookBase implements
         throw new FileOperationException("Invalid create operation provided!",
             FOFailReason.INVALID_FILE);
       }
-
       if (policy.getOperation() == CreateOperation.CREATE_IF_NOT_EXIST_AND_GET_IF_EXIST) {
         synchronized (file_creation_lock) {
           // final check here
