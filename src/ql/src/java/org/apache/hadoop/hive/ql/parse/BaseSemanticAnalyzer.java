@@ -58,6 +58,9 @@ import org.apache.hadoop.hive.ql.io.LuquetInputFormat;
 import org.apache.hadoop.hive.ql.io.LuquetOutputFormat;
 import org.apache.hadoop.hive.ql.io.RCFileInputFormat;
 import org.apache.hadoop.hive.ql.io.RCFileOutputFormat;
+import org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat;
+import org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat;
+import org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe;
 import org.apache.hadoop.hive.ql.lib.Node;
 import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
@@ -127,6 +130,12 @@ public abstract class BaseSemanticAnalyzer {
   protected static final String LUQUET_INPUT = LuquetInputFormat.class
       .getName();
   protected static final String LUQUET_OUTPUT = LuquetOutputFormat.class
+      .getName();
+  protected static final String PARQUET_INPUT =MapredParquetInputFormat.class
+      .getName();
+  protected static final String PARQUET_OUTPUT = MapredParquetOutputFormat.class
+      .getName();
+  protected static final String PARQUET_SERDE = ParquetHiveSerDe.class
       .getName();
 
   class RowFormatParams {
@@ -213,6 +222,15 @@ public abstract class BaseSemanticAnalyzer {
         }
         storageFormat = true;
         break;
+      case HiveParser.TOK_TBLPARQUETFILE:
+        inputFormat = PARQUET_INPUT;
+        outputFormat = PARQUET_OUTPUT;
+        if(shared.serde == null)
+        {
+          shared.serde = PARQUET_SERDE;
+        }
+        storageFormat = true;
+        break;
       case HiveParser.TOK_TBLLUQUETFILE:
         inputFormat = LUQUET_INPUT;
         outputFormat = LUQUET_OUTPUT;
@@ -256,6 +274,10 @@ public abstract class BaseSemanticAnalyzer {
           inputFormat = LUQUET_INPUT;
           outputFormat = LUQUET_OUTPUT;
           shared.serde = COLUMNAR_SERDE;
+        }else if("ParqueFile".equalsIgnoreCase(conf.getVar(HiveConf.ConfVars.HIVEDEFAULTFILEFORMAT))){
+          inputFormat = PARQUET_INPUT;
+          outputFormat = PARQUET_OUTPUT;
+          shared.serde = PARQUET_SERDE;
         }else{
           inputFormat = TEXTFILE_INPUT;
           outputFormat = TEXTFILE_OUTPUT;

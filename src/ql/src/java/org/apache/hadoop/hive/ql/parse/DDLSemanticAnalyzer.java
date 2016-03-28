@@ -2480,6 +2480,11 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
       outputFormat = LUCENE_OUTPUT;
       serde = COLUMNAR_SERDE;
       break;
+    case HiveParser.TOK_TBLPARQUETFILE:
+      inputFormat = PARQUET_INPUT;
+      outputFormat = PARQUET_OUTPUT;
+      serde = PARQUET_SERDE;
+      break;
     case HiveParser.TOK_TBLLUQUETFILE:
       inputFormat = LUQUET_INPUT;
       outputFormat = LUQUET_OUTPUT;
