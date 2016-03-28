@@ -1266,29 +1266,26 @@ public class ThriftRPC extends FacebookBase implements
         String val = sv.getValue();
         locationString = pathString + "/" + handleHashSplitValue(splitKeyName) + "=" + val;
       } else if (colsNames.length == 2) {
-        String splitkeyname1 = "";
-        String splitkeyname2 = "";
+        String splitkeyname1 = colsNames[0];
+        String splitkeyname2 = colsNames[1];
         String val1 = "";
         String val2 = "";
         if (values.size() == 4) {
-          splitkeyname1 = colsNames[0];
-          splitkeyname2 = colsNames[1];
           val1 = values.get(0).getValue();
           val2 = values.get(2).getValue();
         } else if (values.size() == 3) {
           if (values.get(1).getSplitKeyName().equalsIgnoreCase(colsNames[0])) {
             // AAB
-            splitkeyname1 = colsNames[0];
-            splitkeyname2 = colsNames[1];
             val1 = values.get(0).getValue();
             val2 = values.get(2).getValue();
           } else if (values.get(1).getSplitKeyName().equalsIgnoreCase(colsNames[1])) {
             //ABB
-            splitkeyname1 = colsNames[0];
-            splitkeyname2 = colsNames[1];
             val1 = values.get(0).getValue();
             val2 = values.get(1).getValue();
           }
+        } else {
+            val1 = values.get(0).getValue();
+            val2 = values.get(1).getValue();
         }
         locationString = pathString + "/" +
             splitkeyname1 + "=" + handleHashSplitValue(val1) + "/" + splitkeyname2 + "=" + handleHashSplitValue(val2);
