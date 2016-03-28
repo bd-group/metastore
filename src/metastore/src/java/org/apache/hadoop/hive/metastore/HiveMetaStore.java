@@ -60,8 +60,8 @@ import org.apache.hadoop.hive.metastore.DiskManager.BackupEntry;
 import org.apache.hadoop.hive.metastore.DiskManager.DMProfile;
 import org.apache.hadoop.hive.metastore.DiskManager.DMRequest;
 import org.apache.hadoop.hive.metastore.DiskManager.DeviceInfo;
-import org.apache.hadoop.hive.metastore.DiskManager.FileLocatingPolicy;
 import org.apache.hadoop.hive.metastore.DiskManager.FLSelector.FLS_Policy;
+import org.apache.hadoop.hive.metastore.DiskManager.FileLocatingPolicy;
 import org.apache.hadoop.hive.metastore.DiskManager.ReplicateRequest;
 import org.apache.hadoop.hive.metastore.DiskManager.SysMonitor;
 import org.apache.hadoop.hive.metastore.api.AlreadyExistsException;
@@ -860,6 +860,15 @@ public class HiveMetaStore extends ThriftHiveMetastore {
       } finally {
         endFunction("alter_database", success, ex);
       }
+    }
+
+    public void refresh_operation(String rType) throws MetaException, NoSuchObjectException,
+        TException {
+      LOG.info("-----------zqh---------- HiveMetaStore.java refresh all operation.");
+      HashMap<String,Object> params= new HashMap<String,Object>();
+      params.put("refresh_type", rType);
+      MetaMsgServer.sendMsg(MSGFactory.generateDDLMsg(MSGType.MSG_REFRESH_ALL,-1l,-1l, null,-1l,params));
+
     }
 
     private void drop_database_core(RawStore ms,

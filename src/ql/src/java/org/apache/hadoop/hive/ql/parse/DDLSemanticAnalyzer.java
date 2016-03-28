@@ -337,6 +337,9 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
     case HiveParser.TOK_ALTERDATABASE_PROPERTIES:
       analyzeAlterDatabase(ast);
       break;
+    case HiveParser.TOK_REFRESH:
+      analyzeRefresh(ast);
+      break;
     case HiveParser.TOK_CREATEROLE:
       analyzeCreateRole(ast);
       break;
@@ -1940,6 +1943,24 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
         createRoleDesc), conf));
   }
 
+  private void analyzeRefresh(ASTNode ast) throws SemanticException {
+    LOG.info("#######--- IN REFRESH");
+    String rtype = unescapeIdentifier(ast.getChild(0).getText());
+    LOG.info("#######--- IN REFRESH---rtype"+rtype);
+    if (("mdall").equalsIgnoreCase(rtype) || ("mddb").equalsIgnoreCase(rtype)
+        || ("mdsch").equalsIgnoreCase(rtype) || ("mdtab").equalsIgnoreCase(rtype)
+        || ("mdind").equalsIgnoreCase(rtype) || ("mdfile").equalsIgnoreCase(rtype)){
+      LOG.info("#######--- IN REFRESH---all CONSUME");
+      RefreshDesc refreshDesc = new RefreshDesc(rtype);
+      rootTasks.add(TaskFactory.get(new DDLWork(getInputs(), getOutputs(), refreshDesc),
+          conf));
+
+    }else{
+      throw new SemanticException("Unrecognized token in refresh statement:refresh type arg is mdall/mddb/mdsch/mdtab/mdind/mdfile.");
+    }
+
+  }
+
   private void analyzeAlterDatabase(ASTNode ast) throws SemanticException {
 
     String dbName = unescapeIdentifier(ast.getChild(0).getText());
@@ -2458,6 +2479,11 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
       inputFormat = LUCENE_INPUT;
       outputFormat = LUCENE_OUTPUT;
       serde = COLUMNAR_SERDE;
+      break;
+    case HiveParser.TOK_TBLPARQUETFILE:
+      inputFormat = PARQUET_INPUT;
+      outputFormat = PARQUET_OUTPUT;
+      serde = PARQUET_SERDE;
       break;
     case HiveParser.TOK_TBLLUQUETFILE:
       inputFormat = LUQUET_INPUT;

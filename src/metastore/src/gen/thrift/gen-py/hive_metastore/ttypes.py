@@ -174,6 +174,7 @@ class MSOperation:
   ALTERDATABASE = 44
   DESCDATABASE = 45
   ALTERTABLE_DROP_PROPERTIES = 46
+  REFRESH = 47
 
   _VALUES_TO_NAMES = {
     1: "EXPLAIN",
@@ -222,6 +223,7 @@ class MSOperation:
     44: "ALTERDATABASE",
     45: "DESCDATABASE",
     46: "ALTERTABLE_DROP_PROPERTIES",
+    47: "REFRESH",
   }
 
   _NAMES_TO_VALUES = {
@@ -271,6 +273,7 @@ class MSOperation:
     "ALTERDATABASE": 44,
     "DESCDATABASE": 45,
     "ALTERTABLE_DROP_PROPERTIES": 46,
+    "REFRESH": 47,
   }
 
 class CreateOperation:

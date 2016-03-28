@@ -188,20 +188,20 @@
       </field>
       
 	  <!-- for OSCAR -->
-      <field name="viewOriginalText" default-fetch-group="false">
+      <!--field name="viewOriginalText" default-fetch-group="false">
         <column name="VIEW_ORIGINAL_TEXT" jdbc-type="LONGVARCHAR"/>
       </field>
       <field name="viewExpandedText" default-fetch-group="false">
         <column name="VIEW_EXPANDED_TEXT" jdbc-type="LONGVARCHAR"/>
-      </field>
+      </field-->
       
 	  <!-- for ORACLE -->
-      <!--field name="viewOriginalText" default-fetch-group="false">
+      <field name="viewOriginalText" default-fetch-group="false">
         <column name="VIEW_ORIGINAL_TEXT" jdbc-type="CLOB"/>
       </field>
       <field name="viewExpandedText" default-fetch-group="false">
         <column name="VIEW_EXPANDED_TEXT" jdbc-type="CLOB"/>
-      </field-->
+      </field>
       
       <field name="schemaType">
         <column name="SCHEMA_TYPE" length="128" jdbc-type="VARCHAR"/>
@@ -304,20 +304,20 @@
       </field>
       
       <!-- for OSCAR -->
-      <field name="viewOriginalText" default-fetch-group="false">
+      <!--field name="viewOriginalText" default-fetch-group="false">
         <column name="VIEW_ORIGINAL_TEXT" jdbc-type="LONGVARCHAR"/>
       </field>
       <field name="viewExpandedText" default-fetch-group="false">
         <column name="VIEW_EXPANDED_TEXT" jdbc-type="LONGVARCHAR"/>
-      </field>
+      </field-->
       
       <!-- for ORACLE -->
-      <!--field name="viewOriginalText" default-fetch-group="false">
+      <field name="viewOriginalText" default-fetch-group="false">
         <column name="VIEW_ORIGINAL_TEXT" jdbc-type="CLOB"/>
       </field>
       <field name="viewExpandedText" default-fetch-group="false">
         <column name="VIEW_EXPANDED_TEXT" jdbc-type="CLOB"/>
-      </field-->
+      </field>
       
       <field name="tableType">
         <column name="TBL_TYPE" length="128" jdbc-type="VARCHAR"/>

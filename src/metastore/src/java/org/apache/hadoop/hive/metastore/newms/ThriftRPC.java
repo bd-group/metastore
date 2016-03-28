@@ -10,6 +10,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.lang.reflect.UndeclaredThrowableException;
+import java.net.URI;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.metrics.Metrics;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.DiskManager;
@@ -105,6 +107,8 @@ import org.apache.hadoop.hive.metastore.api.UnknownTableException;
 import org.apache.hadoop.hive.metastore.api.User;
 import org.apache.hadoop.hive.metastore.api.statfs;
 import org.apache.hadoop.hive.metastore.model.MetaStoreConst;
+import org.apache.hadoop.hive.metastore.msg.MSGFactory.DDLMsg;
+import org.apache.hadoop.hive.metastore.msg.MSGType;
 import org.apache.hadoop.hive.metastore.tools.PartitionFactory;
 import org.apache.hadoop.hive.metastore.tools.PartitionFactory.PartitionInfo;
 import org.apache.hadoop.hive.serde2.Deserializer;
@@ -610,6 +614,17 @@ public class ThriftRPC extends FacebookBase implements
   public void alter_database(String name, Database db)
       throws MetaException, NoSuchObjectException, TException {
     __cli.get().alterDatabase(name, db);
+  }
+
+
+  @Override
+  public void refresh_operation(String rType) throws MetaException, NoSuchObjectException,
+      TException {
+    LOG.info( "---zqh--------ThriftRPC.java refresh_operation" + rType);
+    HashMap<String, Object> old_params = new HashMap<String, Object>();
+    old_params.put("refresh_type", rType);
+    DDLMsg ramsg = MsgServer.generateDDLMsg(MSGType.MSG_REFRESH_ALL,-1l,-1l, null,-1l,old_params);
+    MsgServer.pdSend(ramsg);
   }
 
   @Override
@@ -1166,6 +1181,22 @@ public class ThriftRPC extends FacebookBase implements
     return true;
   }
 
+  private String handleHashSplitValue(String value) throws FileOperationException
+  {
+    if(value.contains("-")) {
+      String[] val = value.split("-");
+      if(val.length != 2)
+      {
+        throw new FileOperationException(
+            "Invalid Hash splitValues" , FOFailReason.INVALID_SPLIT_VALUES);
+      } else {
+        return val[1];
+      }
+    } else {
+      return value;
+    }
+  }
+
   private String analyzeSplitTypes(List<FieldSchema> fileSplitkeys) {
     String colname = "";
 
@@ -1213,11 +1244,18 @@ public class ThriftRPC extends FacebookBase implements
       }
       StorageDescriptor sd = tbl.getSd();
       String tblLocation = sd.getLocation();
-      // FIXME: change 21 to XXXX
-      tblLocation = tblLocation.substring(21);
+      URI uri = new Path(tblLocation).toUri();
+      String pathString = uri.getPath();
+      if (pathString == null) {
+        throw new FileOperationException(
+            "Invalid DB or Table name:" + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
+      }
       List<FieldSchema> fileSplitKeys = tbl.getFileSplitKeys();
       String fileSplitNames = analyzeSplitTypes(fileSplitKeys);
       String[] colsNames = fileSplitNames.split("-");
+      if (colsNames.length == 0) {
+         return pathString;
+      }
       if (colsNames.length == 1) {
         SplitValue sv = values.get(0);
         String splitKeyName = sv.getSplitKeyName();
@@ -1227,8 +1265,7 @@ public class ThriftRPC extends FacebookBase implements
               FOFailReason.INVALID_SPLIT_VALUES);
         }
         String val = sv.getValue();
-        // tblLocation要把前面的hdfs路径去掉
-        locationString = tblLocation + "/" + splitKeyName + "=" + val;
+        locationString = pathString + "/" + handleHashSplitValue(splitKeyName) + "=" + val;
       } else if (colsNames.length == 2) {
         String splitkeyname1 = "";
         String splitkeyname2 = "";
@@ -1254,8 +1291,8 @@ public class ThriftRPC extends FacebookBase implements
             val2 = values.get(1).getValue();
           }
         }
-        locationString = tblLocation + "/" +
-            splitkeyname1 + "=" + val1 + "/" + splitkeyname2 + "=" + val2;
+        locationString = pathString + "/" +
+            splitkeyname1 + "=" + handleHashSplitValue(val1) + "/" + splitkeyname2 + "=" + handleHashSplitValue(val2);
       }
     } catch (MetaException me) {
       throw new FileOperationException("Invalid DB or Table name:" + db_name + "." + table_name
@@ -1356,7 +1393,7 @@ public class ThriftRPC extends FacebookBase implements
         flp = new FileLocatingPolicy(null, null, FileLocatingPolicy.EXCLUDE_NODES,
             FileLocatingPolicy.EXCLUDE_DEVS_SHARED, true);
       }
-      //ztt 说明没有使用龙存策略或者是使用了龙存策略，但是没找到可用设备
+
       if (devid == null) {
         devid = dm.findBestDevice(node_name, flp);
       }
@@ -1489,7 +1526,10 @@ public class ThriftRPC extends FacebookBase implements
         case none:
         case roundrobin:
         case list:
+          vlen += 1;
+          break;
         case range:
+          vlen += 2;
           break;
         case interval:
           vlen += 2;
@@ -1505,18 +1545,70 @@ public class ThriftRPC extends FacebookBase implements
       }
       long low = -1,
       high = -1;
+      String range_low = null;
+      String range_high = null;
+      Map<String, String> rangeMap = new HashMap<String, String>();
       for (int i = 0, j = 0; i < values.size(); i++) {
+
         SplitValue sv = values.get(i);
         PartitionInfo pi = pis.get(j);
-
+        List<String> argsList = pi.getArgs();
         switch (pi.getP_type()) {
         case none:
         case roundrobin:
         case list:
+          range_low = range_high = null;
+          low = high = -1;
+          Set<String> set = new HashSet<String>();
+          for(String arg: argsList)
+          {
+            String tmp = arg.split(":")[1];
+            set.add(tmp);
+          }
+          if(!set.contains(sv.getValue())) {
+            throw new FileOperationException("ListValue mismatch, please check your metadata.",
+                FOFailReason.INVALID_SPLIT_VALUES);
+          }
+          j++;
+          break;
         case range:
-          throw new FileOperationException("Split type " + pi.getP_type()
-              + " shouldn't be set values.", FOFailReason.INVALID_SPLIT_VALUES);
+          low = high = -1;
+            if(range_low == null)
+            {
+              for(String str : argsList)
+              {
+                String range = str.split(":")[1];
+                String range_trim=range.substring(1, range.lastIndexOf(")"));
+                rangeMap.put(range_trim.split(",")[0], range_trim.split(",")[1]);
+              }
+              range_low = sv.getValue();
+              if(!rangeMap.containsKey(range_low)) {
+                throw new FileOperationException("Invalid partition low_range specified: " + low + ", ",
+                    FOFailReason.INVALID_SPLIT_VALUES);
+              }
+              break;
+            }
+            if(range_high == null)
+            {
+              range_high = sv.getValue();
+
+              if(rangeMap.containsKey(range_low)) {
+                if(!range_high.equals(rangeMap.get(range_low))) {
+                  throw new FileOperationException("Invalid partition high_range specified: " + high + ", ",
+                      FOFailReason.INVALID_SPLIT_VALUES);
+                }
+              }else
+              {
+                throw new FileOperationException("Invalid partition low_range specified: " + low + ", ",
+                    FOFailReason.INVALID_SPLIT_VALUES);
+              }
+              j++;
+              break;
+            }
+            break;
+
         case interval:
+          range_low = range_high = null;
           if (low == -1) {
             try {
               low = Long.parseLong(sv.getValue());
@@ -1563,11 +1655,13 @@ public class ThriftRPC extends FacebookBase implements
                       interval_unit + "(" + iu + ").", FOFailReason.INVALID_SPLIT_VALUES);
             }
             j++;
+            low = high = -1;
             break;
           }
           break;
         case hash:
           low = high = -1;
+          range_low = range_high = null;
           long v;
           try {
             // Format: "num-value"
@@ -1592,6 +1686,7 @@ public class ThriftRPC extends FacebookBase implements
             throw new FileOperationException("Hash value exceeds valid range: [0, " + pi.getP_num()
                 + ").", FOFailReason.INVALID_SPLIT_VALUES);
           }
+          j++;
           break;
         }
         // check version, column name here
@@ -1607,7 +1702,6 @@ public class ThriftRPC extends FacebookBase implements
       // ignore db, table, and values check
       break;
     }
-
     // Step 2: do file creation or file gets now
     boolean do_create = true;
     SFile r = null;
@@ -1630,7 +1724,6 @@ public class ThriftRPC extends FacebookBase implements
     }
     if (do_create) {
       FileLocatingPolicy flp = null;
-
       // do not select the backup/shared device for the first entry
       switch (policy.getOperation()) {
       case CREATE_NEW_IN_NODEGROUPS:
@@ -1668,7 +1761,6 @@ public class ThriftRPC extends FacebookBase implements
         throw new FileOperationException("Invalid create operation provided!",
             FOFailReason.INVALID_FILE);
       }
-
       if (policy.getOperation() == CreateOperation.CREATE_IF_NOT_EXIST_AND_GET_IF_EXIST) {
         synchronized (file_creation_lock) {
           // final check here
@@ -4201,5 +4293,7 @@ public class ThriftRPC extends FacebookBase implements
   public String getSysInfo() throws MetaException, TException {
     return DiskManager.sm.getSysInfo(dm);
   }
+
+
 
 }

@@ -176,6 +176,7 @@ TOK_TBLSEQUENCEFILE;
 TOK_TBLTEXTFILE;
 TOK_TBLRCFILE;
 TOK_TBLLUCENEFILE;
+TOK_TBLPARQUETFILE;
 TOK_TBLLUQUETFILE;
 TOK_TABLEFILEFORMAT;
 TOK_FILEFORMAT_GENERIC;
@@ -278,6 +279,7 @@ TOK_DESCDATABASE;
 TOK_DATABASEPROPERTIES;
 TOK_DATABASELOCATION;
 TOK_DBPROPLIST;
+TOK_REFRESH;
 TOK_ALTERDATABASE_PROPERTIES;
 TOK_ALTERTABLE_ALTERPARTS_MERGEFILES;
 TOK_TABNAME;
@@ -468,6 +470,7 @@ ddlStatement
     | createTableStatement
     | dropTableStatement
     | alterStatement
+    | refreshStatement
     | descStatement
     | showStatement
     | metastoreCheck
@@ -1080,6 +1083,13 @@ dropTableStatement
     : KW_DROP KW_TABLE ifExists? tableName -> ^(TOK_DROPTABLE tableName ifExists?)
     ;
 
+refreshStatement
+@init { msgs.push("refresh statement"); }
+@after { msgs.pop(); }
+    : KW_REFRESH name=Identifier 
+    -> ^(TOK_REFRESH $name )
+    ;
+
 alterStatement
 @init { msgs.push("alter statement"); }
 @after { msgs.pop(); }
@@ -1221,6 +1231,7 @@ alterIndexStatementSuffix
     -> ^(TOK_ALTERINDEX_MODIFY_SUBPARTINDEX_DROP_FILE $partition_name $file_id)
      ;
 */
+    
 
 alterDatabaseStatementSuffix
 @init { msgs.push("alter database statement"); }
@@ -2249,6 +2260,7 @@ tableFileFormat
       | KW_STORED KW_AS KW_TEXTFILE  -> TOK_TBLTEXTFILE
       | KW_STORED KW_AS KW_RCFILE  -> TOK_TBLRCFILE
       | KW_STORED KW_AS KW_LUCENE -> TOK_TBLLUCENEFILE
+      | KW_STORED KW_AS KW_PARQUET -> TOK_TBLPARQUETFILE
       | KW_STORED KW_AS KW_LUQUET -> TOK_TBLLUQUETFILE 
       | KW_STORED KW_AS KW_INPUTFORMAT inFmt=StringLiteral KW_OUTPUTFORMAT outFmt=StringLiteral (KW_INPUTDRIVER inDriver=StringLiteral KW_OUTPUTDRIVER outDriver=StringLiteral)?
       -> ^(TOK_TABLEFILEFORMAT $inFmt $outFmt $inDriver? $outDriver?)
@@ -3387,6 +3399,7 @@ KW_NULL: 'NULL';
 KW_CREATE: 'CREATE';
 KW_EXTERNAL: 'EXTERNAL';
 KW_ALTER: 'ALTER';
+KW_REFRESH: 'REFRESH';
 KW_CHANGE: 'CHANGE';
 KW_COLUMN: 'COLUMN';
 KW_FIRST: 'FIRST';
@@ -3436,6 +3449,7 @@ KW_SEQUENCEFILE: 'SEQUENCEFILE';
 KW_TEXTFILE: 'TEXTFILE';
 KW_RCFILE: 'RCFILE';
 KW_LUCENE: 'LUCENE';
+KW_PARQUET: 'PARQUET';	
 KW_LUQUET: 'LUQUET';
 KW_INPUTFORMAT: 'INPUTFORMAT';
 KW_OUTPUTFORMAT: 'OUTPUTFORMAT';

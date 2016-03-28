@@ -314,6 +314,11 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
         return descDatabase(descDatabaseDesc);
       }
 
+      RefreshDesc refreshDesc = work.getRefreshDesc();
+      if (refreshDesc != null) {
+        return refreshDesc(refreshDesc);
+      }
+
       AlterDatabaseDesc alterDatabaseDesc = work.getAlterDatabaseDesc();
       if (alterDatabaseDesc != null) {
         return alterDatabase(alterDatabaseDesc);
@@ -1810,6 +1815,21 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
     else {
       return 0;   //successful state! added by liulichao
     }
+  }
+
+
+// added by zqh
+  private int refreshDesc(RefreshDesc refreshDesc) throws HiveException {
+
+    String rType = refreshDesc.getRefreshType();
+    LOG.info("-----zhuqihan-----RefreshDesc rType:"+rType);
+    if (rType != null) {
+      LOG.info("-----zhuqihan-----refreshDesc type is not null and it 's:"+ rType);
+      db.refreshOp(rType);
+    } else {
+      throw new HiveException("ERROR: The refresh type " + rType + " does not exist.");
+    }
+    return 0;
   }
 
   private int alterDatabase(AlterDatabaseDesc alterDbDesc) throws HiveException {
