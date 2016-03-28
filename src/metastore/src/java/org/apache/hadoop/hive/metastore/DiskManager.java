@@ -3173,13 +3173,10 @@ public class DiskManager {
               boolean delete = true;
 
               if (entry.getValue() + rerepTimeout < System.currentTimeMillis()) {
-                for (NodeInfo ni : ndmap.values()) {
-                  if (ni.dis != null && ni.dis.contains(entry.getKey())) {
-                    // found it! ignore this device and remove it now
-                    toReRep.remove(entry.getKey());
-                    ignore = true;
-                    break;
-                  }
+                if (admap.get(entry.getKey()) != null) {
+                  // found it! ignore this device and remove it now
+                  toReRep.remove(entry.getKey());
+                  ignore = true;
                 }
                 if (!ignore) {
                   List<SFileLocation> sfl;
