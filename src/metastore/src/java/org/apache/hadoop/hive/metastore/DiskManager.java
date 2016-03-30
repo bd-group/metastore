@@ -856,7 +856,7 @@ public class DiskManager {
       public final Map<String, FLEntry> context = new ConcurrentHashMap<String, FLEntry>();
 
       public enum FLS_Policy {
-        NONE, FAIR_NODES, ORDERED_ALLOC_DEVS,
+        NONE, FAIR_NODES, ORDERED_ALLOC_DEVS, LOONG_STORE,
       }
 
       public void initWatchedTables(RawStore rs, String[] tables, FLS_Policy policy) throws MetaException {
