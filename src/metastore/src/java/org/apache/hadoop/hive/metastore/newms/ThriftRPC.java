@@ -1189,10 +1189,9 @@ public class ThriftRPC extends FacebookBase implements
 
   private String handleHashSplitValue(String value) throws FileOperationException
   {
-    if(value.contains("-")) {
+    if (value.contains("-")) {
       String[] val = value.split("-");
-      if(val.length != 2)
-      {
+      if (val.length != 2) {
         throw new FileOperationException(
             "Invalid Hash splitValues" , FOFailReason.INVALID_SPLIT_VALUES);
       } else {
@@ -1203,23 +1202,24 @@ public class ThriftRPC extends FacebookBase implements
     }
   }
 
-  private String analyzeSplitTypes(List<FieldSchema> fileSplitkeys) {
+  private String analyzeSplitTypes(List<FieldSchema> fileSplitKeys) {
     String colname = "";
 
-    if (fileSplitkeys.size() == 0) {
-    } else if (fileSplitkeys.size() == 1) {
-      FieldSchema filesplitkey = fileSplitkeys.get(0);
+    if (fileSplitKeys == null || fileSplitKeys.size() == 0) {
+      // handle none partition
+    } else if (fileSplitKeys.size() == 1) {
+      FieldSchema filesplitkey = fileSplitKeys.get(0);
       colname = filesplitkey.getName();
     } else {
       // 倒数第二个分区
-      FieldSchema twoFieldSchema = fileSplitkeys.get(fileSplitkeys.size() - 2);
+      FieldSchema twoFieldSchema = fileSplitKeys.get(fileSplitKeys.size() - 2);
       String twocolname = twoFieldSchema.getName();
       String twoComment = twoFieldSchema.getComment();
       PartitionInfo twopi = PartitionFactory.PartitionInfo.fromJson(twoComment);
       int twopversion = twopi.getP_version();
 
       // 最后一个分区
-      FieldSchema lastFieldSchema = fileSplitkeys.get(fileSplitkeys.size() - 1);
+      FieldSchema lastFieldSchema = fileSplitKeys.get(fileSplitKeys.size() - 1);
       String lastcolname = lastFieldSchema.getName();
       String lastComment = lastFieldSchema.getComment();
       PartitionInfo lastpi = PartitionFactory.PartitionInfo.fromJson(lastComment);
@@ -1239,7 +1239,7 @@ public class ThriftRPC extends FacebookBase implements
     String locationString = "";
 
     if (db_name == null || table_name == null) {
-      locationString = "/UNNAMED-DB/UNNAMED-TABLE/" + rand.nextInt(Integer.MAX_VALUE);
+      locationString = "/data/UNNAMED-DB/UNNAMED-TABLE/" + rand.nextInt(Integer.MAX_VALUE);
       return locationString;
     }
     try {
@@ -1249,20 +1249,50 @@ public class ThriftRPC extends FacebookBase implements
             "Invalid DB or Table name:" + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
       }
       StorageDescriptor sd = tbl.getSd();
-      String tblLocation = sd.getLocation();
-      URI uri = new Path(tblLocation).toUri();
-      String pathString = uri.getPath();
-      if (pathString == null) {
+      if (sd == null) {
         throw new FileOperationException(
-            "Invalid DB or Table name:" + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
+            "Invalid Table name: " + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
       }
+      String pathHeader = "";
+      switch (DiskManager.flselector.FLSelector_switch(db_name + "." + table_name)) {
+      default:
+      case NONE:
+      case FAIR_NODES:
+      case ORDERED_ALLOC_DEVS:
+        pathHeader = "/data/" + db_name + "/" + table_name;
+        break;
+      case LOONG_STORE:
+      {
+        String tblLocation = sd.getLocation();
+        if (tblLocation == null) {
+          throw new FileOperationException(
+              "Invalid location in table: " + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
+        }
+        URI uri = new Path(tblLocation).toUri();
+        if (uri == null) {
+          throw new FileOperationException(
+              "Invalid URI of location for table: " + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
+        }
+        pathHeader = uri.getPath();
+        if (pathHeader == null) {
+          throw new FileOperationException(
+              "Invalid URI to path for table:" + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
+        }
+        break;
+      }
+      }
+
       List<FieldSchema> fileSplitKeys = tbl.getFileSplitKeys();
       String fileSplitNames = analyzeSplitTypes(fileSplitKeys);
       String[] colsNames = fileSplitNames.split("-");
-      if (colsNames.length == 0) {
-         return pathString;
+      if (colsNames == null) {
+         return pathHeader + rand.nextInt(Integer.MAX_VALUE);
       }
-      if (colsNames.length == 1) {
+      switch (colsNames.length) {
+      case 0:
+        return pathHeader + rand.nextInt(Integer.MAX_VALUE);
+      case 1:
+      {
         SplitValue sv = values.get(0);
         String splitKeyName = sv.getSplitKeyName();
         // 判断splitValue的splitKeyName是否正确
@@ -1271,34 +1301,40 @@ public class ThriftRPC extends FacebookBase implements
               FOFailReason.INVALID_SPLIT_VALUES);
         }
         String val = sv.getValue();
-        locationString = pathString + "/" + handleHashSplitValue(splitKeyName) + "=" + val;
-      } else if (colsNames.length == 2) {
-        String splitkeyname1 = "";
-        String splitkeyname2 = "";
+        locationString = pathHeader + "/" +
+            splitKeyName + "=" + handleHashSplitValue(val) + "/" +
+            rand.nextInt(Integer.MAX_VALUE);
+        break;
+      }
+      case 2:
+      {
+        String splitkeyname1 = colsNames[0];
+        String splitkeyname2 = colsNames[1];
         String val1 = "";
         String val2 = "";
         if (values.size() == 4) {
-          splitkeyname1 = colsNames[0];
-          splitkeyname2 = colsNames[1];
           val1 = values.get(0).getValue();
           val2 = values.get(2).getValue();
         } else if (values.size() == 3) {
           if (values.get(1).getSplitKeyName().equalsIgnoreCase(colsNames[0])) {
             // AAB
-            splitkeyname1 = colsNames[0];
-            splitkeyname2 = colsNames[1];
             val1 = values.get(0).getValue();
             val2 = values.get(2).getValue();
           } else if (values.get(1).getSplitKeyName().equalsIgnoreCase(colsNames[1])) {
-            //ABB
-            splitkeyname1 = colsNames[0];
-            splitkeyname2 = colsNames[1];
+            // ABB
             val1 = values.get(0).getValue();
             val2 = values.get(1).getValue();
           }
+        } else {
+            val1 = values.get(0).getValue();
+            val2 = values.get(1).getValue();
         }
-        locationString = pathString + "/" +
-            splitkeyname1 + "=" + handleHashSplitValue(val1) + "/" + splitkeyname2 + "=" + handleHashSplitValue(val2);
+        locationString = pathHeader + "/" +
+            splitkeyname1 + "=" + handleHashSplitValue(val1) + "/" +
+            splitkeyname2 + "=" + handleHashSplitValue(val2) + "/" +
+            rand.nextInt(Integer.MAX_VALUE);
+        break;
+      }
       }
     } catch (MetaException me) {
       throw new FileOperationException("Invalid DB or Table name:" + db_name + "." + table_name
