@@ -2,6 +2,7 @@
 # Note: This makefile depends on 2 environment variables to funtion correctly:
 # a) BASE_DIR
 # b) BUILD_DIR
+# C) TARGET_LIB_DIR
 # All these are passed by build.xml.
 #
 
@@ -34,6 +35,7 @@ all:: ${LIB_NAME}
 	cp ${CLASS_DIR}/${CLASS_PATH}/LoongStorePolicy.class ${CLASS_PATH}
 	${JAVAH} ${JFLAGS} ${CLASS_NAME}
 	${CC} ${CFLAGS} ${INCLUDE_PATHS} $< -o ${SO_LINK_NAME}
+	cp ${SO_LINK_NAME} ${TARGET_LIB_DIR}
 
 clean:
 	rm  ${LOONGPOLICY_DIR}/${SO_LINK_NAME}

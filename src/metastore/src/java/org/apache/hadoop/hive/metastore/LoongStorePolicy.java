@@ -1,11 +1,16 @@
 package org.apache.hadoop.hive.metastore;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingDeque;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hbase.util.Pair;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.Node;
 import org.apache.hadoop.hive.metastore.newms.RawStoreImp;
@@ -13,10 +18,33 @@ import org.apache.hadoop.hive.metastore.newms.RawStoreImp;
 public class LoongStorePolicy {
   public static RawStore rs;
   public static Log LOG = LogFactory.getLog(LoongStorePolicy.class);
-
+  public static Boolean useLoongStore = false;
+  public static BlockingQueue<Pair<String, String>> loongStoreDeviceMapQueue = new LinkedBlockingDeque<Pair<String,String>>();
  static {
     LOG.info(System.getProperty("java.library.path"));
-    System.loadLibrary("LoongStorePolicy");
+    String dir = new HiveConf().getVar(HiveConf.ConfVars.TARGET_LIB_DIR);
+    File file = new File(dir+"/libLoongStorePolicy.so");
+    LOG.info("ztt.file: "+ file);
+    if (file.exists()) {
+      useLoongStore = true;
+      String loongStoreDeviceString = new HiveConf().getVar(HiveConf.ConfVars.LOONGSTORE_DEVICE);
+      if (loongStoreDeviceString != null && !loongStoreDeviceString.equals("")) {
+        String[] loongStoreDeviceMaps = loongStoreDeviceString.split("\\|");
+        if (loongStoreDeviceMaps.length != 0) {
+          for (String loongStoreDeviceMap : loongStoreDeviceMaps) {
+            String[] loongStoreDevice = loongStoreDeviceMap.split(":");
+            if (loongStoreDevice == null || loongStoreDevice.length != 2) {
+              LOG.error("ztt.the arg LOONGSTORE_DEVICE from HiveConf is not correct.");
+            } else {
+              String device = loongStoreDevice[0];
+              String mountPoint = loongStoreDevice[1];
+              loongStoreDeviceMapQueue.add(new Pair<String, String>(device, mountPoint));
+            }
+          }
+        }
+      }
+      System.loadLibrary("LoongStorePolicy");
+    }
     try {
       rs = new RawStoreImp();
     } catch (IOException e) {
@@ -27,7 +55,7 @@ public class LoongStorePolicy {
 
   }
 
-  public native int setAllocAffinity(String path);
+  public native String setAllocAffinity(String path);
 
   public native String getIstInfo(String path, int offset);
 

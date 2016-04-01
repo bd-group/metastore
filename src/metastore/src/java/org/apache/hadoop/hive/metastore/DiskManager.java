@@ -1064,8 +1064,7 @@ public class DiskManager {
       public FLS_Policy FLSelector_switch(String table) {
         FLEntry e = context.get(table);
         if (e == null) {
-          //return FLS_Policy.NONE;
-          return FLS_Policy.LOONG_STORE;
+          return FLS_Policy.NONE;
         } else {
           return e.policy;
         }

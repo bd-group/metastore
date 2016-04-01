@@ -31,32 +31,38 @@ typedef struct __ioctl_get_istinfo ioctl_get_istinfo_t;
 #define LEOFS_IOC_GET_ISTID              _IOR('l', 159, ioctl_get_istinfo_t)
 #define LEOFS_IOC_CHECK_ALLOC_AFFINITY   _IO('l', 160)
 
- JNIEXPORT jint JNICALL Java_org_apache_hadoop_hive_metastore_LoongStorePolicy_setAllocAffinity
+ JNIEXPORT jstring JNICALL Java_org_apache_hadoop_hive_metastore_LoongStorePolicy_setAllocAffinity
      (JNIEnv *env, jobject jobj, jstring path){
-
-	const char *pathPointer = (*env)->GetStringUTFChars(env, path, 0);
-	int fd = -1;
-	fd = open(pathPointer, O_RDONLY);
+	char buf[4096];
+	memset(buf, 0, sizeof(buf));
+	jstring content;
+	
+/*	const char *pathPointer = (*env)->GetStringUTFChars(env, path, 0);
+	int fd = open(pathPointer, O_RDONLY);
 	if (fd < 0) {
-		printf("Open path: %s failed,  errno: %d\n", pathPointer, errno);
-		close(fd);
-		return errno;
+		sprintf(buf, "#Open path: %s failed,  errno: %d\n",pathPointer, errno);
+        content = (*env)->NewStringUTF(env, buf);
+        close(fd);
+		return content;
 	}
 	int err = ioctl(fd, LEOFS_IOC_SET_ALLOC_AFFINITY);
 	if (err < 0) {
 		if (errno == LEOFS_ERR_NOT_FILEDIR) {
-			printf("Path %s not regular file or directory!\n", pathPointer);
+			sprintf(buf, "#Path %s is not a regular file or directory!, errno: %d\n", pathPointer, errno);
 		} else if (errno == LEOFS_ERR_REP_ONLY) {
-			printf("Path %s not in rep layout!\n", pathPointer);
+			sprintf(buf, "#Path %s not in rep layout!, errno: %d\n", pathPointer, errno);
+			
 		} else {
-			printf("Operation failed, errno: %d\n", errno);
+			sprintf(buf, "#Operation failed, errno: %d\n", errno);
 		}
+		content = (*env)->NewStringUTF(env, buf);
 		close(fd);
-		return errno;
+		return content;
 	}
-	printf("Operation finished!\n");
-	close(fd);
-	return 0;
+	close(fd); */
+	sprintf(buf, "%s", "OK");
+	content = (*env)->NewStringUTF(env, buf);
+	return content;
 }
 
 JNIEXPORT jstring JNICALL Java_org_apache_hadoop_hive_metastore_LoongStorePolicy_getIstInfo
@@ -64,8 +70,7 @@ JNIEXPORT jstring JNICALL Java_org_apache_hadoop_hive_metastore_LoongStorePolicy
 	char buf[4096];
 	memset(buf, 0, sizeof(buf));
 	jstring content;
-	
-/*  测试的时候将结点ip写死
+/*	
 	const char *pathPointer = (*env)->GetStringUTFChars(env, path, 0);
 		
 	struct stat *st;
@@ -74,7 +79,7 @@ JNIEXPORT jstring JNICALL Java_org_apache_hadoop_hive_metastore_LoongStorePolicy
 	
 	int fd = open(pathPointer, O_RDONLY);
     if (fd < 0) {
-		sprintf(buf, "#Open path: %s , failed,  errno: %d\n",pathPointer, errno);
+		sprintf(buf, "#Open path: %s failed,  errno: %d\n",pathPointer, errno);
         content = (*env)->NewStringUTF(env, buf);
         close(fd);
         free(igid);
@@ -141,11 +146,11 @@ JNIEXPORT jstring JNICALL Java_org_apache_hadoop_hive_metastore_LoongStorePolicy
     	if(i != igid->istnum - 1)
     		sprintf(buf, "%s/", buf);
     }
-*/
-	sprintf(buf, "%s", "1|0|5|10.61.3.26/127.0.1.1/202.106.199.36");
+    free(st);
+	free(igid); */
+	//测试的时候将结点ip写死
+	sprintf(buf, "%s", "1|0|5|192.168.11.95/127.0.1.1/202.106.199.36");
 	content = (*env)->NewStringUTF(env, buf);
-//	free(st);
-//	free(igid);
 	return content;
 
 }

@@ -270,11 +270,12 @@
 
   <target name="compile-loongPolicy" depends="jar">
     <echo message="Project: ${ant.project.name}"/>
-    <exec dir="./loongPolicy" executable="${make.cmd}" failonerror="true">
+    <exec dir="./loongPolicy" executable="${make.cmd}" failonerror="false">
       <env key="BASE_DIR" value="${basedir}"/>
       <env key="BUILD_DIR" value="${basedir}/build"/>
+      <env key="TARGET_LIB_DIR" value="${target.lib.dir}"/>
     </exec>
-    <copy file="${basedir}/loongPolicy/libLoongStorePolicy.so" todir="${basedir}/build/metastore"/>
+    <!--copy file="${basedir}/loongPolicy/libLoongStorePolicy.so" todir="${target.lib.dir}"/-->
   </target>
   
   <target name="clean-loongPolicy">
