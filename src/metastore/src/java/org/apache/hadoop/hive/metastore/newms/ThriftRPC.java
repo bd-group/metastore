@@ -860,12 +860,14 @@ public class ThriftRPC extends FacebookBase implements
         List<SFileLocation> sflToDel = new ArrayList<SFileLocation>();
         for (SFileLocation sfl : file.getLocations()) {
           if (sfl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.ONLINE) {
+            LOG.info("libing:debug:thriftRPC.java: sfilelocation is online");
             sfl.setRep_id(0);
             sfl.setDigest(file.getDigest());
             rs.updateSFileLocation(sfl);
           } else if (sfl.getVisit_status() == MetaStoreConst.MFileLocationVisitStatus.INCREP) {
             // this is an increp SFL, ok, accept it
           } else {
+            LOG.info("libing:debug:thriftRPC.close_file state is wrong");
             sflToDel.add(sfl);
             dm.asyncDelSFL(sfl);
           }
@@ -914,11 +916,12 @@ public class ThriftRPC extends FacebookBase implements
       if (e != null) {
         throw e;
       }
-
+      LOG.info("libing:debug:close_file:" + dm.repQ.size());
       synchronized (dm.repQ) {
         dm.repQ.add(new DMRequest(file, DMRequest.DMROperation.REPLICATE, 1));
         dm.repQ.notify();
       }
+      LOG.info("libing:debug:close_file:add to repQ" + dm.repQ.size());
     } finally {
       endFunction("close_file", true, e);
       DMProfile.fcloseSuccRS.incrementAndGet();
@@ -1264,7 +1267,7 @@ public class ThriftRPC extends FacebookBase implements
               FOFailReason.INVALID_SPLIT_VALUES);
         }
         String val = sv.getValue();
-        locationString = pathString + "/" + handleHashSplitValue(splitKeyName) + "=" + val;
+        locationString = pathString + "/" + splitKeyName + "=" + handleHashSplitValue(val);
       } else if (colsNames.length == 2) {
         String splitkeyname1 = colsNames[0];
         String splitkeyname2 = colsNames[1];
@@ -1294,6 +1297,7 @@ public class ThriftRPC extends FacebookBase implements
       throw new FileOperationException("Invalid DB or Table name:" + db_name + "." + table_name
           + " + " + me.getMessage(), FOFailReason.INVALID_TABLE);
     }
+    locationString = locationString + "/" + rand.nextInt(Integer.MAX_VALUE);
     return locationString;
   }
 
@@ -1306,9 +1310,9 @@ public class ThriftRPC extends FacebookBase implements
     if (dm == null) {
       return null;
     }
-
+    LOG.info("libing:debug:step_1:node_name:"+node_name + "db: " + db_name + "table_name" + table_name);
     String location = get_sfile_location(db_name, table_name, values);
-
+    LOG.info("libing:debug:step_2:location:"+ location);
     if (node_name == null) {
       // this means we should select Best Available Node and Best Available Device;
       // FIXME: add FLSelector here, filter already used nodes, update will used nodes;
@@ -1317,6 +1321,7 @@ public class ThriftRPC extends FacebookBase implements
         // call FLSelector's main function
         switch (DiskManager.flselector.FLSelector_switch(db_name + "." + table_name)) {
         default:
+        case HDFS:
         case NONE:
           node_name = dm.findBestNode(flp);
           break;
@@ -1363,13 +1368,14 @@ public class ThriftRPC extends FacebookBase implements
         if (node_name == null) {
           throw new IOException("Following the FLP(" + flp + "), we can't find any available node now.");
         }
+//        node_name = "libing";
       } catch (IOException e) {
         LOG.error(e, e);
         throw new FileOperationException("Can not find any Best Available Node now, please retry",
             FOFailReason.SAFEMODE);
       }
     }
-
+    LOG.info("libing:debug:step_3:node_name:"+node_name );
     SFile cfile = null;
 
     // Step 1: find best device to put a file
@@ -1387,11 +1393,13 @@ public class ThriftRPC extends FacebookBase implements
         throw new FileOperationException("Can not find any available device on node '" + node_name
             + "' now", FOFailReason.NOTEXIST);
       }
-
+//      devid = "Kingston_DataTraveler_2";
+      LOG.info("libing:debug:step_4:devid:"+devid );
       // how to convert table_name to tbl_id?
       cfile = new SFile(0, db_name, table_name, MetaStoreConst.MFileStoreStatus.INCREATE, repnr,
           "SFILE_DEFALUT", 0, 0, null, 0, null, values, MetaStoreConst.MFileLoadStatus.OK);
       cfile = rs.createFile(cfile);
+      LOG.info("libing:debug:step_4:devid:"+devid );
       // cfile = getMS().getSFile(cfile.getFid());
       if (cfile == null) {
         throw new FileOperationException(
@@ -1403,17 +1411,21 @@ public class ThriftRPC extends FacebookBase implements
             System.currentTimeMillis(),
             MetaStoreConst.MFileLocationVisitStatus.OFFLINE, "SFL_DEFAULT");
         if (!rs.createFileLocation(sfloc)) {
+           LOG.info("libing:debug:step_5: thriftrpc.createFileLocation" );
           continue;
         }
+        LOG.info("libing:debug:step_6: create sfl success!");
         List<SFileLocation> sfloclist = new ArrayList<SFileLocation>();
         sfloclist.add(sfloc);
         cfile.setLocations(sfloclist);
         break;
       } while (true);
-    } catch (IOException e) {
+    }
+    catch (IOException e) {
       throw new FileOperationException("System might in Safe Mode, please wait ... {" + e + "}",
           FOFailReason.SAFEMODE);
-    } catch (InvalidObjectException e) {
+    }
+    catch (InvalidObjectException e) {
       throw new FileOperationException("Internal error: " + e.getMessage(),
           FOFailReason.INVALID_FILE);
     }

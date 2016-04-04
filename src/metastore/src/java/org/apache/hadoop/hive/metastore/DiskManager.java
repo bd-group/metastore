@@ -856,7 +856,7 @@ public class DiskManager {
       public final Map<String, FLEntry> context = new ConcurrentHashMap<String, FLEntry>();
 
       public enum FLS_Policy {
-        NONE, FAIR_NODES, ORDERED_ALLOC_DEVS,
+        NONE, FAIR_NODES, ORDERED_ALLOC_DEVS,HDFS,
       }
 
       public void initWatchedTables(RawStore rs, String[] tables, FLS_Policy policy) throws MetaException {
@@ -2234,7 +2234,6 @@ public class DiskManager {
             FileLocatingPolicy.EXCLUDE_DEVS_AND_RANDOM, false);
         flp.length_hint = f.getLength();
         flp_default.length_hint = f.getLength();
-
         for (int i = init_size; i < (init_size + nr); i++, flp = flp_default) {
           if (i == init_size) {
             // FIXME: Use FLSelector framework here?
@@ -2242,6 +2241,10 @@ public class DiskManager {
             switch (flselector.FLSelector_switch(table)) {
             default:
             case NONE:
+            case HDFS:
+              flp.nodes.add(f.getLocations().get(valid_idx).getNode_name());
+              flp.node_mode = FileLocatingPolicy.HDFS;
+              flp.dev_mode = FileLocatingPolicy.HDFS;
               break;
             case FAIR_NODES:
             case ORDERED_ALLOC_DEVS:
@@ -2250,6 +2253,13 @@ public class DiskManager {
             }
             flp.accept_types = flselector.getDevTypeListAfterIncludeHint(table, dtype);
           }
+//          if(flselector.FLSelector_switch(table) == FLS_Policy.HDFS) {
+//            if(!HdfsPolicy(f,valid_idx,i)) {
+//              break;
+//            } else {
+//              continue;
+//            }
+//          }
           try {
             String node_name = findBestNode(flp);
             if (node_name == null) {
@@ -2296,6 +2306,7 @@ public class DiskManager {
               } else {
                 location += "UNNAMED-DB/UNNAMED-TABLE/" + rand.nextInt(Integer.MAX_VALUE);
               }
+              // location = ThriftRPC.get_sfile_location();
               nloc = new SFileLocation(node_name, f.getFid(), devid, location,
                   i, System.currentTimeMillis(),
                   isIncRep ? MetaStoreConst.MFileLocationVisitStatus.INCREP :
@@ -4480,6 +4491,7 @@ public class DiskManager {
       public static final int EXCLUDE_DEVS_AND_RANDOM = 7;
       public static final int EXCLUDE_NODES_AND_RANDOM = 8;
       public static final int ORDERED_ALLOC = 9;  // active both on node and dev mode
+      public static final int HDFS = 10;
 
       Set<String> nodes;
       Set<String> devs;
@@ -4633,6 +4645,14 @@ public class DiskManager {
           return nodes.get(r.nextInt(nodes.size()));
         } else {
           return null;
+        }
+      case FileLocatingPolicy.HDFS:
+        if (flp.nodes == null || flp.nodes.size() == 0) {
+          return null;
+        } else {
+          for(String node : flp.nodes) {
+            return node;
+          }
         }
       }
 
@@ -4993,7 +5013,14 @@ public class DiskManager {
           }
         }
         return null;
-      } else {
+      }else if(flp.dev_mode == FileLocatingPolicy.HDFS){
+        for(DeviceInfo d : ni.dis)
+        {
+          if((DeviceInfo.getTags(d.prop) & MetaStoreConst.MDeviceProp.__HDFS__) == 0) {
+            return d.dev;
+          }
+        }
+      }else {
         // ignore offline device
         dilist = filterOfflineDevice(node, ni.dis);
       }
@@ -5147,6 +5174,138 @@ public class DiskManager {
         }
       }
     }
+    public boolean HdfsPolicy(SFile sfile , int master , int i){
+      LOG.info("libing:debug:step_2:HdfsPolicy function");
+      boolean result = false;
+        try {
+          String node_name = sfile.getLocations().get(master).getNode_name();
+          LOG.info("libing:debug:step_3:node_name:" + node_name);
+          String devid = "HDFS_DEVICE_TEST";
+          Random rand = new Random();
+          String location;
+
+          Table tbl = rs.getTable(sfile.getDbName(), sfile.getTableName());
+          String tblLocation = tbl.getSd().getLocation();
+          LOG.info("libing:debug:step_4:tblLocation: " + tblLocation);
+//          Path dst = new Path(tblLocation);
+//          FileSystem hdfs = dst.getFileSystem(new Configuration());
+//           String mp = hdfs.getUri().toString();
+          String mp = new HiveConf().getVar(ConfVars.HDFS_DEVICE);
+           LOG.info("libing:debug:step_5:mp: " + mp);
+          SFileLocation nloc;
+          do{
+          location = sfile.getLocations().get(master).getLocation();
+          location = location.substring(0, location.lastIndexOf("/"));
+          location = location + "/" +rand.nextInt(Integer.MAX_VALUE);
+          LOG.info("libing:debug:step_６:location: " + location);
+          nloc = new SFileLocation(node_name, sfile.getFid(), devid, location,
+              i, System.currentTimeMillis(),
+              MetaStoreConst.MFileLocationVisitStatus.OFFLINE, "SFL_REP_DEFAULT");
+          synchronized (rs) {
+            // FIXME: check the file status now, we might conflict with REOPEN
+            if (rs.createFileLocation(nloc)) {
+              LOG.info("libing:debug:step_7:create nloc successfull ");
+              break;
+            }
+          }
+          }while(true);
+          sfile.addToLocations(nloc);
+
+          // indicate file transfer
+          JSONObject jo = new JSONObject();
+          try {
+            JSONObject j = new JSONObject();
+            NodeInfo ni = ndmap.get(sfile.getLocations().get(master).getNode_name());
+            String fromMp, toMp;
+
+            if (ni == null) {
+              if (nloc != null) {
+                rs.delSFileLocation(nloc.getDevid(), nloc.getLocation());
+              }
+              LOG.error("Can not find Node '" + sfile.getLocations().get(master).getNode_name() +
+                  "' in nodemap now, is it offline? fid(" + sfile.getFid() + ")");
+            }
+            Device d = null;
+            try {
+              d = rs.getDevice(sfile.getLocations().get(master).getDevid());
+            } catch (NoSuchObjectException e) {
+              e.printStackTrace();
+            }
+            if((d != null) && (DeviceInfo.getTags(d.getProp()) & MetaStoreConst.MDeviceProp.__HDFS__) == 0)
+            {
+              fromMp = ni.getMP(sfile.getLocations().get(master).getDevid());
+            }else
+            {
+//              fromMp = hdfs.getUri().toString();
+                fromMp = new HiveConf().getVar(ConfVars.HDFS_DEVICE);
+            }
+
+            if (fromMp == null) {
+              LOG.error("Can not find Device '" + sfile.getLocations().get(master).getDevid() +
+                  "' in NodeInfo '" + sfile.getLocations().get(master).getNode_name() + "', fid(" + sfile.getFid() + ")");
+            }
+            LOG.info("libing:debug:step_8-1:node_name: " + sfile.getLocations().get(master).getNode_name());
+            LOG.info("libing:debug:step_8-2:devid: " + sfile.getLocations().get(master).getDevid());
+            LOG.info("libing:debug:step_8-3:fromMp: " + fromMp);
+            LOG.info("libing:debug:step_8-4:location: " + sfile.getLocations().get(master).getLocation());
+
+            j.put("node_name", sfile.getLocations().get(master).getNode_name());
+            j.put("devid", sfile.getLocations().get(master).getDevid());
+            j.put("mp", fromMp);
+            j.put("location", sfile.getLocations().get(master).getLocation());
+            jo.put("from", j);
+
+            j = new JSONObject();
+//            toMp = hdfs.getUri().toString();
+            toMp = new HiveConf().getVar(ConfVars.HDFS_DEVICE);
+            if (toMp == null) {
+              LOG.error("Can not find Device '" + nloc.getDevid() +
+                  "' in NodeInfo '" + nloc.getNode_name() + "', fid(" + sfile.getFid() + ")");
+            }
+            LOG.info("libing:debug:step_9-1:node_name: " +  sfile.getLocations().get(master).getNode_name());
+            LOG.info("libing:debug:step_9-2:devid: " + devid);
+            LOG.info("libing:debug:step_9-3:devid: " + toMp);
+            LOG.info("libing:debug:step_9-4:location: " + nloc.getLocation());
+            j.put("node_name", sfile.getLocations().get(master).getNode_name());
+            j.put("devid", "HDFS_DEVICE_TEST");
+            j.put("mp", toMp);
+            j.put("location", nloc.getLocation());
+            jo.put("to", j);
+          } catch (JSONException e) {
+            LOG.error(e, e);
+            closeRepLimit.incrementAndGet();
+          }
+          synchronized (ndmap) {
+            NodeInfo ni = ndmap.get(node_name);
+            if (ni == null) {
+              LOG.error("Can not find Node '" + node_name + "' in nodemap now, is it offline?");
+              closeRepLimit.incrementAndGet();
+            } else {
+              synchronized (ni.toRep) {
+                ni.toRep.add(jo);
+                LOG.info("----> ADD to Node " + node_name + "'s toRep " + jo);
+                result = true;
+              }
+            }
+          }
+        }
+//        catch (IOException e) {
+//          LOG.error(e, e);
+//          try {
+//            Thread.sleep(500);
+//          } catch (InterruptedException e1) {
+//          }
+//          closeRepLimit.incrementAndGet();
+//        }
+        catch (MetaException e) {
+          LOG.error(e, e);
+          closeRepLimit.incrementAndGet();
+        } catch (InvalidObjectException e) {
+          LOG.error(e, e);
+          closeRepLimit.incrementAndGet();
+        }
+        return result;
+    }
 
     public class DMRepThread implements Runnable {
       private RawStore rrs = null;
@@ -5191,6 +5350,8 @@ public class DiskManager {
       public void release_rep_limit() {
         closeRepLimit.incrementAndGet();
       }
+
+
 
       public void run() {
         while (true) {
@@ -5294,7 +5455,6 @@ public class DiskManager {
                 FileLocatingPolicy.EXCLUDE_DEVS_AND_RANDOM, true);
             flp.length_hint = r.file.getLength();
             flp_default.length_hint = r.file.getLength();
-
             for (int i = r.begin_idx; i < r.file.getRep_nr(); i++, flp = flp_default) {
               if (i == r.begin_idx) {
                 // TODO: Use FLSelector here to decide whether we need replicate it to CACHE device
@@ -5302,6 +5462,10 @@ public class DiskManager {
                 switch (flselector.FLSelector_switch(table)) {
                 default:
                 case NONE:
+                case HDFS:
+                  flp.nodes.add(r.file.getLocations().get(master).getNode_name());
+                  flp.node_mode = FileLocatingPolicy.HDFS;
+                  flp.dev_mode = FileLocatingPolicy.HDFS;
                   break;
                 case FAIR_NODES:
                 case ORDERED_ALLOC_DEVS:
@@ -5311,6 +5475,23 @@ public class DiskManager {
                 flp.accept_types = flselector.getDevTypeListAfterIncludeHint(table,
                     MetaStoreConst.MDeviceProp.__AUTOSELECT_R2__);
               }
+//              if(flselector.FLSelector_switch(table) == FLS_Policy.HDFS) {
+//                LOG.info("libing:debug:step_1:flselector.FLSelector_switch(table) == FLS_Policy.HDFS");
+//                if(!HdfsPolicy(r.file,master,i)) {
+//                  r.failnr++;
+//                  r.begin_idx = i;
+//                  if (r.failnr <= 50) {
+//                    // insert back to the queue;
+//                    synchronized (repQ) {
+//                      repQ.add(r);
+//                      repQ.notify();
+//                    }
+//                  } else {
+//                    LOG.error("[DEV] Drop REP request: fid " + r.file.getFid() + ", failed " + r.failnr);
+//                  }
+//                }
+//                continue;
+//              }
               try {
                 String node_name = findBestNode(flp);
                 if (node_name == null) {
@@ -5376,6 +5557,7 @@ public class DiskManager {
                   } else {
                     location += "UNNAMED-DB/UNNAMED-TABLE/" + rand.nextInt(Integer.MAX_VALUE);
                   }
+//                  location = ThriftRPC.get_sfile_location();
                   nloc = new SFileLocation(node_name, r.file.getFid(), devid, location,
                       i, System.currentTimeMillis(),
                       MetaStoreConst.MFileLocationVisitStatus.OFFLINE, "SFL_REP_DEFAULT");
@@ -6145,7 +6327,23 @@ public class DiskManager {
           }
           di.mp = stats[0];
           // BUG-XXX: do NOT update device prop here now!
-          di.prop = 0;
+//        di.prop = 0;
+          Device d = null;
+          try {
+            d = rs.getDevice(di.dev);
+          } catch (MetaException e) {
+            LOG.error(e, e);
+          } catch (NoSuchObjectException e) {
+            LOG.error(e, e);
+          }
+          if(d != null) {
+            di.prop = d.getProp();
+            if((DeviceInfo.getTags(d.getProp()) & MetaStoreConst.MDeviceProp.__HDFS__) == 0) {
+              di.mp = new HiveConf().getVar(ConfVars.HDFS_DEVICE);
+            }
+          }
+
+
           di.read_nr = Long.parseLong(stats[1]);
           di.write_nr = Long.parseLong(stats[2]);
           di.err_nr = Long.parseLong(stats[3]);

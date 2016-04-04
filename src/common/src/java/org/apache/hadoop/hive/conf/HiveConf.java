@@ -752,6 +752,8 @@ public class HiveConf extends Configuration {
     ROCKETMQ_NAMESRV_ADDRESS("rocketmq.namesrv.address", "127.0.0.1:9876"),
     USE_ROCKETMQ("rocketmq.select", false),
 
+    HDFS_DEVICE("hdfs.name", "hdfs://192.168.11.94:9002"),
+
     //add by zy
     NEWMS_IS_USE_METASTORE_CLIENT("newms.isUseMetaStoreClient", true),
     NEWMS_IS_GET_ALL_OBJECTS("newms.isGetAllObjects", false),
