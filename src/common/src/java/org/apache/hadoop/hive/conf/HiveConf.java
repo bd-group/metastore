@@ -746,7 +746,7 @@ public class HiveConf extends Configuration {
     FLSELECTOR_WATCH_LOONGSTORE("flselector.watch.all","db2.ztt_test;splittest.splittest4;splittest.splittest5"),
 
     //LoongStore device {devid : mountPoint}
-    LOONGSTORE_DEVICE("loongstore.device","Kingston_DataTraveler_2:/home/metastore/usb|Generic_Flash_Disk_BC714414-0:/home/metastore/usb2/|35000cca0564c29f0-part1:/mnt/disk1"),
+    LOONGSTORE_DEVICE("loongstore.device","Kingston_DataTraveler_2:/home/metastore/usb|Generic_Flash_Disk_BC714414-0:/home/metastore/usb1/|35000cca0564c29f0-part1:/mnt/disk1"),
 
     //TARGET_LIB_DIR
     TARGET_LIB_DIR("target.lib.dir","/home/metastore/sotstore/dist/lib"),

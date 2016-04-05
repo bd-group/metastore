@@ -1255,31 +1255,31 @@ public class ThriftRPC extends FacebookBase implements
       }
       String pathHeader = "";
       switch (DiskManager.flselector.FLSelector_switch(db_name + "." + table_name)) {
-      default:
-      case NONE:
-      case FAIR_NODES:
-      case ORDERED_ALLOC_DEVS:
-        pathHeader = "/data/" + db_name + "/" + table_name;
-        break;
-      case LOONG_STORE:
-      {
-        String tblLocation = sd.getLocation();
-        if (tblLocation == null) {
-          throw new FileOperationException(
-              "Invalid location in table: " + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
+        default:
+        case NONE:
+        case FAIR_NODES:
+        case ORDERED_ALLOC_DEVS:
+          pathHeader = "/data/" + db_name + "/" + table_name;
+          break;
+        case LOONG_STORE:
+        {
+          String tblLocation = sd.getLocation();
+          if (tblLocation == null) {
+            throw new FileOperationException(
+                "Invalid location in table: " + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
+          }
+          URI uri = new Path(tblLocation).toUri();
+          if (uri == null) {
+            throw new FileOperationException(
+                "Invalid URI of location for table: " + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
+          }
+          pathHeader = uri.getPath();
+          if (pathHeader == null) {
+            throw new FileOperationException(
+                "Invalid URI to path for table:" + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
+          }
+          break;
         }
-        URI uri = new Path(tblLocation).toUri();
-        if (uri == null) {
-          throw new FileOperationException(
-              "Invalid URI of location for table: " + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
-        }
-        pathHeader = uri.getPath();
-        if (pathHeader == null) {
-          throw new FileOperationException(
-              "Invalid URI to path for table:" + db_name + "." + table_name, FOFailReason.INVALID_TABLE);
-        }
-        break;
-      }
       }
 
       List<FieldSchema> fileSplitKeys = tbl.getFileSplitKeys();
@@ -1352,10 +1352,7 @@ public class ThriftRPC extends FacebookBase implements
       return null;
     }
     String devid = null;
-    String location = get_sfile_location(db_name, table_name, values);
-    LOG.info("ztt.create_file  get_sfile_location test000-------------- is :" + location);
-    location = location.replaceAll(" ", "");
-    LOG.info("ztt.create_file  get_sfile_location test000--------------- is :" + location);
+    String location = get_sfile_location(db_name, table_name, values).replaceAll(" ", "");
 
     if (node_name == null) {
       // this means we should select Best Available Node and Best Available Device;
@@ -1366,8 +1363,6 @@ public class ThriftRPC extends FacebookBase implements
         switch (DiskManager.flselector.FLSelector_switch(db_name + "." + table_name)) {
         default:
         case LOONG_STORE:
-          LOG.info("ztt_create_file : loong_store policy");
-         // repnr = 1;                               //ztt 龙存会自动备份,所以这里将repnr置为1,原来策略不会进行备份
           if (LoongStorePolicy.useLoongStore && !LoongStorePolicy.loongStoreDeviceMapQueue.isEmpty()) {
             int failCount = 0;
             while (failCount < 5 && node_name == null) {
@@ -1379,27 +1374,26 @@ public class ThriftRPC extends FacebookBase implements
               if (!loongLocation.endsWith(File.separator)) {
                 loongLocation = loongLocation + File.separator;
               }
-              LOG.info("ztt.loongLocation: " + loongLocation);
               File dir = new File(loongLocation);
-              if (dir.mkdir()) {
+              if (dir.mkdirs()) {
                 LOG.info("create location: " + loongLocation +" successful.");
                 String status = lsp.setAllocAffinity(loongLocation);
                 if (status != null && status.equals("OK")) {
-                  node_name = lsp.getNode(loongLocation, 0);            //ztt龙存提供的接口
+                  node_name = lsp.getNode(loongLocation, 0);
                 } else{
-                  LOG.warn("ztt.set allocAffinity error,  status: " +status);
+                  LOG.warn("Set allocAffinity error,  status: " +status);
                 }
               } else{
-                LOG.warn("ztt.Make directory " + dir.getPath() + " failed.");
+                LOG.warn("Make directory " + dir.getPath() + " failed.");
               }
               failCount ++;
             }
             if (node_name == null) {
               devid = null;
-              LOG.info("ztt.LoongStore does not provide one available node, we will use traditional policy.");
+              LOG.info("LoongStore does not provide one available node, we will use traditional policy.");
             }
           } else {
-            LOG.warn("ztt.There is not support loongStore policy, we'll use another policy.");
+            LOG.warn("There is not support loongStore policy, we'll use another policy.");
           }
           break;
         case NONE:
@@ -1441,11 +1435,9 @@ public class ThriftRPC extends FacebookBase implements
               MetaStoreConst.MDeviceProp.__AUTOSELECT_R1__);
           break;
         }
-        LOG.info("ztt.test001----------------node_name: " +node_name);
         if (node_name == null) {
           node_name = dm.findBestNode(flp);
         }
-        LOG.info("ztt.test001----------------node_name: " +node_name);
         if (node_name == null) {
           throw new IOException("Following the FLP(" + flp + "), we can't find any available node now.");
         }
@@ -1467,11 +1459,9 @@ public class ThriftRPC extends FacebookBase implements
         flp = new FileLocatingPolicy(null, null, FileLocatingPolicy.EXCLUDE_NODES,
             FileLocatingPolicy.EXCLUDE_DEVS_SHARED, true);
       }
-      LOG.info("ztt.test002----------------devid: " +devid);
       if (devid == null) {
         devid = dm.findBestDevice(node_name, flp);
       }
-      LOG.info("ztt.test002----------------devid: " +devid);
       if (devid == null) {
         throw new FileOperationException("Can not find any available device on node '" + node_name
             + "' now", FOFailReason.NOTEXIST);
@@ -1491,11 +1481,9 @@ public class ThriftRPC extends FacebookBase implements
         SFileLocation sfloc = new SFileLocation(node_name, cfile.getFid(), devid, location, 0,
             System.currentTimeMillis(),
             MetaStoreConst.MFileLocationVisitStatus.OFFLINE, "SFL_DEFAULT");
-        LOG.info("ztt.test003----------------SFileLocation: " +sfloc);
         if (!rs.createFileLocation(sfloc)) {
           continue;
         }
-        LOG.info("ztt.test003----------------SFileLocation: " +sfloc +" create successful.");
         List<SFileLocation> sfloclist = new ArrayList<SFileLocation>();
         sfloclist.add(sfloc);
         cfile.setLocations(sfloclist);

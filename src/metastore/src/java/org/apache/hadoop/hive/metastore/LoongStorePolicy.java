@@ -21,10 +21,8 @@ public class LoongStorePolicy {
   public static Boolean useLoongStore = false;
   public static BlockingQueue<Pair<String, String>> loongStoreDeviceMapQueue = new LinkedBlockingDeque<Pair<String,String>>();
  static {
-    LOG.info(System.getProperty("java.library.path"));
     String dir = new HiveConf().getVar(HiveConf.ConfVars.TARGET_LIB_DIR);
     File file = new File(dir+"/libLoongStorePolicy.so");
-    LOG.info("ztt.file: "+ file);
     if (file.exists()) {
       useLoongStore = true;
       String loongStoreDeviceString = new HiveConf().getVar(HiveConf.ConfVars.LOONGSTORE_DEVICE);
@@ -34,7 +32,7 @@ public class LoongStorePolicy {
           for (String loongStoreDeviceMap : loongStoreDeviceMaps) {
             String[] loongStoreDevice = loongStoreDeviceMap.split(":");
             if (loongStoreDevice == null || loongStoreDevice.length != 2) {
-              LOG.error("ztt.the arg LOONGSTORE_DEVICE from HiveConf is not correct.");
+              LOG.error("The arg LOONGSTORE_DEVICE from HiveConf is not correct.");
             } else {
               String device = loongStoreDevice[0];
               String mountPoint = loongStoreDevice[1];
@@ -66,7 +64,7 @@ public class LoongStorePolicy {
     }
     String[] attrs = str.split("\\|");
     if (attrs.length != 4) {
-      LOG.info("ztt.istinfo is not complete.");
+      LOG.info("The istinfo from loongStore interface is not complete.");
       return null;
     }
     int istnum = Integer.parseInt(attrs[0]);
@@ -91,9 +89,8 @@ public class LoongStorePolicy {
 
   public String getNode(String path, int offset) {
     String info = getIstInfo(path, offset);
-//    String info = "1|0|5|127.0.1.1/10.61.3.26/202.106.199.36";
     if (info.startsWith("#")) {
-      LOG.info("ztt.LoongStore error : " +info);
+      LOG.info("LoongStore error : " +info);
       return null;
     }
     IstInfo istInfo = convertToIstInfo(info);
@@ -102,7 +99,6 @@ public class LoongStorePolicy {
     }
     LOG.info(istInfo.toString());
     for (List<String> ipList : istInfo.ips) {
-      LOG.info("ztt.LoongStore provide one node to store data.");
       for (String ip : ipList) {
         Node node = null;
         synchronized (rs) {

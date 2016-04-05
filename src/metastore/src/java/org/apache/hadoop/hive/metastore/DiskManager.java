@@ -4958,7 +4958,6 @@ public class DiskManager {
       if (safeMode) {
         throw new IOException("Disk Manager is in Safe Mode, waiting for disk reports ...\n");
       }
-      LOG.info("ztt_findBestLoongDevice: we are in LOONG_STORE policy!");
       NodeInfo ni = ndmap.get(node);
       if (ni == null) {
         throw new IOException("Node '" + node + "' does not exist in NDMap, are you sure node '"
@@ -4971,7 +4970,6 @@ public class DiskManager {
       }
       for(DeviceInfo di : ni.dis) {
         if(admap.contains(di) && (DeviceInfo.getTags(di.prop) & MetaStoreConst.MDeviceProp.__LOONGSTORE__) != 0) {
-          LOG.info("ztt_findBestLoongDevice: this device is : "+ di.dev  +" it's loong device");
           dilist.add(di);
         }
       }
@@ -4992,7 +4990,7 @@ public class DiskManager {
         if (dilist.size() > 0) {
           return dilist.get(r.nextInt(dilist.size())).dev;
         } else {
-          LOG.info("ztt.LoongStore this node : " + node +" does not have a loongstore device, we will use traditional policy to find a device.");
+          LOG.info("LoongStore this node : " + node +" does not have a loongstore device, we will use traditional policy to find a device.");
         }
       }
       return bestDev;
