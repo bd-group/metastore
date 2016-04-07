@@ -4953,7 +4953,6 @@ public class DiskManager {
       }
     }
 
-    //ztt 若使用龙存,则不用原来的策略寻找设备,否则使用原来的策略
     public String findBestLoongDevice(String node) throws IOException {
       if (safeMode) {
         throw new IOException("Disk Manager is in Safe Mode, waiting for disk reports ...\n");

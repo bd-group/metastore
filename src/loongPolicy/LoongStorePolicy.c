@@ -11,9 +11,6 @@
 #include "org_apache_hadoop_hive_metastore_LoongStorePolicy.h"
 
 
-
-#define MAX_FILTERS     10
-
 #define LEOFS_ERR_REP_ONLY          (1495) /*非副本存储模式*/
 #define LEOFS_ERR_NOT_FILEDIR       (1496) /*既不是普通文件也不是目录*/
 #define LEOFS_ERR_AFFINITY_NOTSET   (1497) /*查询的对象没有设置亲和性*/
@@ -27,9 +24,7 @@ struct __ioctl_get_istinfo {
 typedef struct __ioctl_get_istinfo ioctl_get_istinfo_t;
 
 #define LEOFS_IOC_SET_ALLOC_AFFINITY     _IO('l', 157)
-#define LEOFS_IOC_CANCEL_ALLOC_AFFINITY  _IO('l', 158)
 #define LEOFS_IOC_GET_ISTID              _IOR('l', 159, ioctl_get_istinfo_t)
-#define LEOFS_IOC_CHECK_ALLOC_AFFINITY   _IO('l', 160)
 
  JNIEXPORT jstring JNICALL Java_org_apache_hadoop_hive_metastore_LoongStorePolicy_setAllocAffinity
      (JNIEnv *env, jobject jobj, jstring path){
@@ -37,7 +32,7 @@ typedef struct __ioctl_get_istinfo ioctl_get_istinfo_t;
 	memset(buf, 0, sizeof(buf));
 	jstring content;
 	
-/*	const char *pathPointer = (*env)->GetStringUTFChars(env, path, 0);
+	const char *pathPointer = (*env)->GetStringUTFChars(env, path, 0);
 	int fd = open(pathPointer, O_RDONLY);
 	if (fd < 0) {
 		sprintf(buf, "#Open path: %s failed,  errno: %d\n",pathPointer, errno);
@@ -59,7 +54,7 @@ typedef struct __ioctl_get_istinfo ioctl_get_istinfo_t;
 		close(fd);
 		return content;
 	}
-	close(fd); */
+	close(fd); 
 	sprintf(buf, "%s", "OK");
 	content = (*env)->NewStringUTF(env, buf);
 	return content;
@@ -70,7 +65,7 @@ JNIEXPORT jstring JNICALL Java_org_apache_hadoop_hive_metastore_LoongStorePolicy
 	char buf[4096];
 	memset(buf, 0, sizeof(buf));
 	jstring content;
-/*	
+	
 	const char *pathPointer = (*env)->GetStringUTFChars(env, path, 0);
 		
 	struct stat *st;
@@ -85,7 +80,6 @@ JNIEXPORT jstring JNICALL Java_org_apache_hadoop_hive_metastore_LoongStorePolicy
         free(igid);
 		return content;
 	}
-	//memset(&st, 0, sizeof(st));
 	st = malloc(sizeof(st));
 	int err = fstat(fd, st);
 	if (err < 0) {
@@ -147,9 +141,9 @@ JNIEXPORT jstring JNICALL Java_org_apache_hadoop_hive_metastore_LoongStorePolicy
     		sprintf(buf, "%s/", buf);
     }
     free(st);
-	free(igid); */
-	//测试的时候将结点ip写死
-	sprintf(buf, "%s", "1|0|5|192.168.11.95/127.0.1.1/202.106.199.36");
+	free(igid); 
+	//目前没有测试环境，测试的时候将结点ip写死
+	//sprintf(buf, "%s", "1|0|5|192.168.11.95/127.0.1.1/202.106.199.36");
 	content = (*env)->NewStringUTF(env, buf);
 	return content;
 

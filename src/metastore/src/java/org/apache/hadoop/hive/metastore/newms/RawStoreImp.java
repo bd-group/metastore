@@ -527,12 +527,10 @@ public class RawStoreImp implements RawStore {
 	public boolean createFileLocation(SFileLocation location)	throws InvalidObjectException, MetaException {
 		try {
 			SFileLocation old = getSFileLocation(location.getDevid(), location.getLocation());
-			LOG.info("ztt.test003----------------createFileLocation   old: " +old);
 	    if (old != null) {
 	      return false;
 	    }
 			SFile sf = (SFile) cs.readObject(ObjectType.SFILE, location.getFid() + "");
-			LOG.info("ztt.test003----------------createFileLocation   sf: " +sf);
 			if (sf == null) {
         throw new MetaException("No SFile found by id: " + location.getFid());
       }
