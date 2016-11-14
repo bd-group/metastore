@@ -1196,7 +1196,7 @@ public class ThriftRPC extends FacebookBase implements
   }
 
   private String analyzeSplitTypes(List<FieldSchema> fileSplitKeys) {
-    String colname = "";
+    String colname = null;
 
     if (fileSplitKeys == null || fileSplitKeys.size() == 0) {
       // handle none partition
@@ -1276,14 +1276,23 @@ public class ThriftRPC extends FacebookBase implements
       }
 
       List<FieldSchema> fileSplitKeys = tbl.getFileSplitKeys();
+
+      LOG.info("+++++++++++filesplitkeys.size:" + fileSplitKeys.size());
+      LOG.info("+++++++++++:fileSplitkeys" + fileSplitKeys);
       String fileSplitNames = analyzeSplitTypes(fileSplitKeys);
-      String[] colsNames = fileSplitNames.split("-");
-      if (colsNames == null) {
-         return pathHeader + rand.nextInt(Integer.MAX_VALUE);
+      if (fileSplitNames == null) {
+        LOG.info("+++++++++fileSplitNames is null");
+         return pathHeader + "/" + rand.nextInt(Integer.MAX_VALUE);
       }
+      LOG.info("++++++fileSplitNames:" + fileSplitNames);
+      String[] colsNames = fileSplitNames.split("-");
+
+
+      LOG.info("+++++++++++++fileSplitNames.size:" + colsNames.length);
       switch (colsNames.length) {
       case 0:
-        return pathHeader + rand.nextInt(Integer.MAX_VALUE);
+        LOG.info("+++++case 0 : " + pathHeader + rand.nextInt(Integer.MAX_VALUE));
+        return pathHeader  + "/" + rand.nextInt(Integer.MAX_VALUE);
       case 1:
       {
         SplitValue sv = values.get(0);
@@ -1521,33 +1530,47 @@ public class ThriftRPC extends FacebookBase implements
         throw new FileOperationException("Invalid file split values.",
             FOFailReason.INVALID_SPLIT_VALUES);
       }
+
       List<PartitionInfo> allpis = PartitionFactory.PartitionInfo.getPartitionInfo(tbl
           .getFileSplitKeys());
       List<PartitionInfo> pis = new ArrayList<PartitionInfo>();
       // find the max version
-      long version = 0;
-      for (PartitionInfo pi : allpis) {
-        if (pi.getP_version() > version) {
-          version = pi.getP_version();
+      if(allpis.size() == 0)
+      {
+        LOG.info("++++++level+++:" + values.get(0).getLevel());
+        if (values.get(0).getLevel() != 0) {
+          LOG.info("--------------------");
+          throw new FileOperationException("Invalid file split values.",
+              FOFailReason.INVALID_SPLIT_VALUES);
+        }
+      }else
+      {
+        long version = 0;
+        for (PartitionInfo pi : allpis) {
+          if (pi.getP_version() > version) {
+            version = pi.getP_version();
+          }
+        }
+        if (values.get(0).getVerison() > version) {
+          throw new FileOperationException("Invalid Version specified, provide "
+              + values.get(0).getVerison() + " expected " + version,
+              FOFailReason.INVALID_SPLIT_VALUES);
+        } else {
+          version = values.get(0).getVerison();
+        }
+        // remove non-max versions
+        for (PartitionInfo pi : allpis) {
+          if (pi.getP_version() == version) {
+            pis.add(pi);
+          }
         }
       }
-      if (values.get(0).getVerison() > version) {
-        throw new FileOperationException("Invalid Version specified, provide "
-            + values.get(0).getVerison() + " expected " + version,
-            FOFailReason.INVALID_SPLIT_VALUES);
-      } else {
-        version = values.get(0).getVerison();
-      }
-      // remove non-max versions
-      for (PartitionInfo pi : allpis) {
-        if (pi.getP_version() == version) {
-          pis.add(pi);
-        }
-      }
+
       int vlen = 0;
       for (PartitionInfo pi : pis) {
         switch (pi.getP_type()) {
         case none:
+          break;
         case roundrobin:
         case list:
           vlen += 1;
@@ -1563,7 +1586,7 @@ public class ThriftRPC extends FacebookBase implements
           break;
         }
       }
-      if (vlen != values.size()) {
+      if (vlen != values.size() && values.get(0).getLevel() != 0) {
         throw new FileOperationException("File split value should be " + vlen + " entries.",
             FOFailReason.INVALID_SPLIT_VALUES);
       }
@@ -1572,13 +1595,14 @@ public class ThriftRPC extends FacebookBase implements
       String range_low = null;
       String range_high = null;
       Map<String, String> rangeMap = new HashMap<String, String>();
-      for (int i = 0, j = 0; i < values.size(); i++) {
+      for (int i = 0, j = 0; i < values.size() && values.get(0).getLevel() != 0; i++) {
 
         SplitValue sv = values.get(i);
         PartitionInfo pi = pis.get(j);
         List<String> argsList = pi.getArgs();
         switch (pi.getP_type()) {
         case none:
+         break;
         case roundrobin:
         case list:
           range_low = range_high = null;
