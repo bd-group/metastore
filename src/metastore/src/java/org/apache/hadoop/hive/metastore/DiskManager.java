@@ -197,11 +197,12 @@ public class DiskManager {
         }
       }
 
-      public Set<String> filterNodes(Set<String> in) {
+      public Set<String> filterNodes(DiskManager dm, Set<String> in) {
         Set<String> r = new HashSet<String>();
         if (in != null) {
           r.addAll(in);
           r.removeAll(statis.keySet());
+          r.removeAll(dm.inactiveNodes.keySet());
         }
         if (r.size() == 0) {
           // this means we have used all available nodes, then we use REF COUNT to calculate available nodes
@@ -1113,7 +1114,7 @@ public class DiskManager {
               dist.statis.clear();
             } else if (l1Key == dist.l1Key) {
               // ok, do filter
-              flp.nodes = dist.filterNodes(flp.nodes);
+              flp.nodes = dist.filterNodes(dm, flp.nodes);
             } else {
               // ignore this key
               doUpdate = false;
