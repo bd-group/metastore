@@ -2159,6 +2159,23 @@ public class DiskManager {
                 LOG.error(e, e);
                 master_marked = false;
               }
+            } else
+            // BUG FIX: we return node list for shared device that attached to a set of nodegroup,
+            //          thus, we should handle this here
+            if (f.getLocations().get(i).getNode_name().contains(";")) {
+              String node_list = f.getLocations().get(i).getNode_name();
+              String[] nodes = node_list.split(";");
+
+              if (nodes != null && nodes.length > 0) {
+                Random rand = new Random();
+                int _idx = rand.nextInt(nodes.length);
+
+                f.getLocations().get(i).setNode_name(nodes[_idx]);
+              } else {
+                LOG.error("Extract FID " + f.getFid() + " SFL shared device " + f.getLocations().get(i).getDevid() +
+                    " node list " + node_list + " failed");
+                master_marked = false;
+              }
             }
           }
         }
@@ -2403,7 +2420,24 @@ public class DiskManager {
                 LOG.error(e, e);
                 master_marked = false;
               }
-            }
+            } else
+              // BUG FIX: we return node list for shared device that attached to a set of nodegroup,
+              //          thus, we should handle this here
+              if (f.getLocations().get(i).getNode_name().contains(";")) {
+                String node_list = f.getLocations().get(i).getNode_name();
+                String[] nodes = node_list.split(";");
+
+                if (nodes != null && nodes.length > 0) {
+                  Random rand = new Random();
+                  int _idx = rand.nextInt(nodes.length);
+
+                  f.getLocations().get(i).setNode_name(nodes[_idx]);
+                } else {
+                  LOG.error("Extract FID " + f.getFid() + " SFL shared device " + f.getLocations().get(i).getDevid() +
+                      " node list " + node_list + " failed");
+                  master_marked = false;
+                }
+              }
           }
         }
 
@@ -3664,7 +3698,7 @@ public class DiskManager {
       }
 
       r += "Uptime " + ((System.currentTimeMillis() - startupTs) / 1000) + " s, ";
-      r += "Timestamp " + System.currentTimeMillis() / 1000 + " Version 2.0.1a\n";
+      r += "Timestamp " + System.currentTimeMillis() / 1000 + ", Version 2.0.1b\n";
       r += "MetaStore Server Disk Manager listening @ " + hiveConf.getIntVar(HiveConf.ConfVars.DISKMANAGERLISTENPORT);
       r += "\nSafeMode: " + safeMode + "\n";
       r += "Multicast: " + hiveConf.getVar(HiveConf.ConfVars.DM_USE_MCAST) + "\n";
@@ -5267,7 +5301,24 @@ public class DiskManager {
                     LOG.error(e, e);
                     master_marked = false;
                   }
-                }
+                } else
+                  // BUG FIX: we return node list for shared device that attached to a set of nodegroup,
+                  //          thus, we should handle this here
+                  if (r.file.getLocations().get(i).getNode_name().contains(";")) {
+                    String node_list = r.file.getLocations().get(i).getNode_name();
+                    String[] nodes = node_list.split(";");
+
+                    if (nodes != null && nodes.length > 0) {
+                      Random rand = new Random();
+                      int _idx = rand.nextInt(nodes.length);
+
+                      r.file.getLocations().get(i).setNode_name(nodes[_idx]);
+                    } else {
+                      LOG.error("Extract FID " + r.file.getFid() + " SFL shared device " + r.file.getLocations().get(i).getDevid() +
+                          " node list " + node_list + " failed");
+                      master_marked = false;
+                    }
+                  }
               }
               // remove if this backup device has already used
               if (spec_dev.remove(r.file.getLocations().get(i).getDevid())) {
